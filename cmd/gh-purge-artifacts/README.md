@@ -5,7 +5,7 @@ Purge GitHub Actions artifacts.
 ## Installation
 
 ```sh
-go get github.com/pmatseykanets/gh/cmd/gh-purge-artifacts
+go get github.com/pmatseykanets/gh-tools/cmd/gh-purge-artifacts
 ```
 
 ## Usage
