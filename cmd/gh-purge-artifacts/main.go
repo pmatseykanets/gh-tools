@@ -113,17 +113,18 @@ func readConfig() (config, error) {
 }
 
 func run(ctx context.Context) error {
-	ghToken := os.Getenv("GITHUB_TOKEN")
-	if ghToken == "" {
-		return fmt.Errorf("GITHUB_TOKEN env variable should be set")
-	}
-
 	var err error
 	purger := &purger{}
 	purger.config, err = readConfig()
 	if err != nil {
 		return err
 	}
+
+	ghToken := os.Getenv("GITHUB_TOKEN")
+	if ghToken == "" {
+		return fmt.Errorf("GITHUB_TOKEN env variable should be set")
+	}
+
 	purger.gh = github.NewClient(
 		oauth2.NewClient(ctx, oauth2.StaticTokenSource(
 			&oauth2.Token{AccessToken: ghToken}),
