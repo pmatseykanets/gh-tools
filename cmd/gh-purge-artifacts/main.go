@@ -88,18 +88,19 @@ func readConfig() (config, error) {
 	}
 
 	parts := strings.Split(flag.Arg(0), "/")
-	switch len(parts) {
-	case 1:
-		if parts[0] == "" {
-			return config, fmt.Errorf("owner is required")
-		}
+	nparts := len(parts)
+	if nparts > 0 {
 		config.owner = parts[0]
-	case 2:
-		if parts[0] != "" {
-			config.repo = parts[1]
-		}
-	default:
-		return config, fmt.Errorf("invalid repository name %s", flag.Arg(0))
+	}
+	if nparts > 1 {
+		config.repo = parts[1]
+	}
+	if nparts > 2 {
+		return config, fmt.Errorf("invalid owner or repository name %s", flag.Arg(0))
+	}
+
+	if config.owner == "" {
+		return config, fmt.Errorf("owner is required")
 	}
 
 	if nameRegExp != "" {
@@ -165,7 +166,11 @@ func (p *purger) purge(ctx context.Context) error {
 
 func (p *purger) getSingleRepo(ctx context.Context) (*github.Repository, error) {
 	repo, _, err := p.gh.Repositories.Get(ctx, p.config.owner, p.config.repo)
-	return repo, fmt.Errorf("can't read repository: %s", err)
+	if err != nil {
+		return nil, fmt.Errorf("can't read repository: %s", err)
+	}
+
+	return repo, nil
 }
 
 func (p *purger) getUserRepos(ctx context.Context) ([]*github.Repository, error) {
