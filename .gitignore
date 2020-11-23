@@ -1,3 +1,4 @@
 .env
 .envrc
 /gh-purge-artifacts
+/gh-go-rdeps
