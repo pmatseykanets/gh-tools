@@ -9,13 +9,12 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v32/github"
+	"github.com/pmatseykanets/gh-tools/version"
 	"golang.org/x/oauth2"
 )
 
-const version = "0.1.0"
-
 func usage() {
-	usage := `A tool to purge GitHub Actions Artifacts 
+	usage := `Purge GitHub Actions Artifacts across GitHub repositories
 
 Usage: gh-purge-artifacts [flags] [owner][/repo]
   owner         Repository owner (user or organization)
@@ -29,13 +28,7 @@ Flags:
 
 Environment variables:
   GITHUB_TOKEN  an authentication token for github.com API requests
-
-Examples:
-  gh-purge-artifacts john/website
-  gh-purge-artifacts -regexp '^api' john
-  gh-purge-artifacts -dry-run acme
 `
-	fmt.Printf("gh-purge-artifacts %s\n", version)
 	fmt.Println(usage)
 }
 
@@ -83,7 +76,7 @@ func readConfig() (config, error) {
 	}
 
 	if showVersion {
-		fmt.Printf("gh-purge-artifacts version %s\n", version)
+		fmt.Printf("gh-purge-artifacts version %s\n", version.Version)
 		os.Exit(0)
 	}
 
