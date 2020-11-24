@@ -1,0 +1,43 @@
+name: build
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  test:
+    name: "Build ${{ matrix.go }}"
+    strategy:
+      matrix:
+        go: ["1.14", "1.15"]
+    runs-on: ubuntu-latest
+    env:
+      GO111MODULE: on
+
+    steps:
+    - name: Set up Go
+      uses: actions/setup-go@v1
+      with:
+        go-version: ${{ matrix.go }}
+
+    - name: Go version
+      run: go version
+
+    - name: Install staticcheck
+      run: go get honnef.co/go/tools/cmd/staticcheck
+
+    - name: Checkout
+      uses: actions/checkout@v1
+      with:
+        fetch-depth: 1
+        
+    - name: Vet
+      run: go vet ./...
+
+    - name: Test
+      run: go test -vet=off -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+    - name: Run staticcheck
+      run: $(go env GOPATH)/bin/staticcheck ./...
