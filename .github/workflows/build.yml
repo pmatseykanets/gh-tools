@@ -22,7 +22,10 @@ jobs:
       with:
         go-version: ${{ matrix.go }}
 
-    - name: Install staticceck
+    - name: Go version
+      run: go version
+
+    - name: Install staticcheck
       run: go get honnef.co/go/tools/cmd/staticcheck
 
     - name: Checkout
