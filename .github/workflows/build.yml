@@ -17,16 +17,24 @@ jobs:
       GO111MODULE: on
 
     steps:
-    - uses: actions/setup-go@v1
+    - name: Set up Go
+      uses: actions/setup-go@v1
       with:
         go-version: ${{ matrix.go }}
 
-    - run: go get honnef.co/go/tools/cmd/staticcheck
+    - name: Install staticceck
+      run: go get honnef.co/go/tools/cmd/staticcheck
 
-    - uses: actions/checkout@v1
+    - name: Checkout
+      uses: actions/checkout@v1
       with:
         fetch-depth: 1
         
-    - run: go vet ./...
+    - name: Vet
+      run: go vet ./...
 
-    - run: $(go env GOPATH)/bin/staticcheck ./...
+    - name: Test
+      run: go test -vet=off -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+    - name: Run staticcheck
+      run: $(go env GOPATH)/bin/staticcheck ./...
