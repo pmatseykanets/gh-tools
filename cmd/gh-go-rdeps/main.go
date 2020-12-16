@@ -192,7 +192,8 @@ repos:
 				}
 			}
 			for _, replace = range mod.Replace {
-				if strings.HasPrefix(replace.New.Path, f.config.modpath) {
+				if strings.HasPrefix(replace.Old.Path, f.config.modpath) ||
+					strings.HasPrefix(replace.New.Path, f.config.modpath) {
 					dependencies = append(dependencies, mod.Module.Mod.Path)
 					continue repos
 				}
