@@ -57,13 +57,13 @@ gh-find golang
 List all `README` and `LICENSE` files in all repositories in the `golang` GitHub organization but skip the ones in the `vendor` directories:
 
 ```sh
-gh-find -name '^README$' -name '^LICENSE$' -no-path '^vendor/' -no-path '^src/vendor/'  golang
+gh-find -name '^README$' -name '^LICENSE$' -no-path '^vendor/' -no-path '^src/vendor/' golang
 ```
 
 List `README` files in the root directories of all repositories in the `golang` GitHub organization:
 
 ```sh
-gh-find -name '^README$' -maxdepth 1  golang
+gh-find -name '^README$' -maxdepth 1 golang
 ```
 
 List all `LICENSE` files repositories which name starts with `go` in the `golang` GitHub organization:
@@ -75,5 +75,5 @@ gh-find -name '^LICENSE$' -repo '^go' golang
 Find all `go.mod` files containing `golang.org/x/sync` in all repositories in the `golang` GitHub organization:
 
 ```sh
-gh-find -name '^go.mod$' -grep 'golang.org/x/sync'  golang
+gh-find -name '^go.mod$' -grep 'golang.org/x/sync' golang
 ```
