@@ -5,7 +5,7 @@ Find reverse Go dependencies across GitHub repositories. It supports [go modules
 ## Installation
 
 ```sh
-go get github.com/pmatseykanets/gh-tools/cmd/gh-go-rdeps
+GO111MODULE=on go get github.com/pmatseykanets/gh-tools/cmd/gh-go-rdeps
 ```
 
 ## Usage
