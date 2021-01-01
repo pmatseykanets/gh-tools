@@ -28,7 +28,7 @@ Usage: gh-find [flags] [owner][/repo]
 
 Flags:
   -help         Print this information and exit
-  -branch       Repository branch name if different from the default
+  -branch       The branch name if different from the default
   -grep         The pattern to match the file contents
   -maxdepth     Descend at most n directory levels
   -mindepth     Descend at least n directory levels
@@ -38,7 +38,7 @@ Flags:
   -no-path      The pattern to reject the pathname
   -repo         The pattern to match repository names
   -token        Prompt for an Access Token
-  -type         File type f - file, d - directory
+  -type         The entry type f - file, d - directory
   -version      Print the version and exit
 `
 	fmt.Printf("gh-find version %s\n", version.Version)
@@ -58,19 +58,21 @@ const (
 )
 
 type config struct {
-	owner        string
-	repo         string
-	repoRegexp   *regexp.Regexp
-	branch       string
-	ftype        string           // File type.
-	minDepth     int              // Descend at least n directory levels.
-	maxDepth     int              // Descend at most n directory levels.
-	nameRegexp   []*regexp.Regexp // The pattern to match the last component of the pathname.
-	noNameRegexp []*regexp.Regexp // The pattern to reject the last component of the pathname.
-	pathRegexp   []*regexp.Regexp // The pattern to match the pathname.
-	noPathRegexp []*regexp.Regexp // The pattern to reject the pathname.
-	grepRegexp   *regexp.Regexp   // The pattern to match the contents of matching files.
-	token        bool             // Propmt for an access token.
+	owner          string
+	repo           string
+	repoRegexp     *regexp.Regexp   // The pattern to match respository names.
+	branch         string           // The branch name if different from the default.
+	ftype          string           // The entry type f - file, d - directory.
+	minDepth       int              // Descend at least n directory levels.
+	maxDepth       int              // Descend at most n directory levels.
+	maxResults     int              // Limit the number of matched entries.
+	maxRepoResults int              // Limit the number of matched entries per repository.
+	nameRegexp     []*regexp.Regexp // The pattern to match the last component of the pathname.
+	noNameRegexp   []*regexp.Regexp // The pattern to reject the last component of the pathname.
+	pathRegexp     []*regexp.Regexp // The pattern to match the pathname.
+	noPathRegexp   []*regexp.Regexp // The pattern to reject the pathname.
+	grepRegexp     *regexp.Regexp   // The pattern to match the contents of matching files.
+	token          bool             // Propmt for an access token.
 }
 
 type finder struct {
@@ -108,11 +110,13 @@ func readConfig() (config, error) {
 		name, path, noName, noPath stringList
 		err                        error
 	)
-	flag.StringVar(&config.branch, "branch", "", "Repository branch name if different from the default")
+	flag.StringVar(&config.branch, "branch", "", "The branch name if different from the default")
 	flag.BoolVar(&showHelp, "help", showHelp, "Print this information and exit")
 	flag.StringVar(&grep, "grep", "", "The pattern to match the file contents")
 	flag.IntVar(&config.maxDepth, "maxdepth", 0, "Descend at most n directory levels")
 	flag.IntVar(&config.minDepth, "mindepth", 0, "Descend at least n directory levels")
+	flag.IntVar(&config.maxResults, "maxresults", 0, "Limit the number of matched entries")
+	flag.IntVar(&config.maxRepoResults, "maxreporesults", 0, "Limit the number of matched entries per repository")
 	flag.Var(&name, "name", "The pattern to match the last component of the pathname")
 	flag.Var(&noName, "no-name", "The pattern to reject the last component of the pathname")
 	flag.Var(&path, "path", "The pattern to match the pathname")
@@ -196,13 +200,19 @@ func readConfig() (config, error) {
 	}
 
 	if config.maxDepth < 0 {
-		return config, fmt.Errorf("maxdepth value should be positive")
+		return config, fmt.Errorf("maxdepth should be positive")
 	}
 	if config.minDepth < 0 {
-		return config, fmt.Errorf("mindepth value should be positive")
+		return config, fmt.Errorf("mindepth should be positive")
 	}
 	if config.maxDepth > 0 && config.minDepth > 0 && config.maxDepth < config.minDepth {
 		return config, fmt.Errorf("mindepth can't be greater than maxdepth")
+	}
+	if config.maxResults < 0 {
+		return config, fmt.Errorf("maxresults should be positive")
+	}
+	if config.maxRepoResults < 0 {
+		return config, fmt.Errorf("maxreporesults should be positive")
 	}
 
 	return config, nil
@@ -251,9 +261,17 @@ func (f *finder) find(ctx context.Context) error {
 
 	var (
 		branch, entryPath, basename string
-		level                       int
+		level, matched, repoMatched int
 	)
+nextRepo:
 	for _, repo := range repos {
+		repoMatched = 0 // Reset per repository counter.
+
+		// Check the number of overall matched entries.
+		if f.config.maxResults > 0 && matched >= f.config.maxResults {
+			return nil
+		}
+
 		branch = f.config.branch
 		if branch == "" {
 			branch = repo.GetDefaultBranch()
@@ -270,6 +288,15 @@ func (f *finder) find(ctx context.Context) error {
 
 	nextEntry:
 		for _, entry := range tree.Entries {
+			// Check the number of overall matched entries.
+			if f.config.maxResults > 0 && matched >= f.config.maxResults {
+				return nil
+			}
+			// Check the number of per repository matched entries.
+			if f.config.maxRepoResults > 0 && repoMatched >= f.config.maxRepoResults {
+				continue nextRepo
+			}
+
 			entryPath = entry.GetPath()
 			level = levels(entryPath)
 			if f.config.minDepth > 0 && level < f.config.minDepth {
@@ -317,9 +344,15 @@ func (f *finder) find(ctx context.Context) error {
 				for _, match := range results.matches {
 					fmt.Fprintln(f.stdout, repo.GetFullName(), entry.GetPath(), match.lineno, match.line)
 				}
+				if len(results.matches) > 0 {
+					matched++
+					repoMatched++
+				}
 				continue nextEntry
 			}
 
+			matched++
+			repoMatched++
 			fmt.Fprintln(f.stdout, repo.GetFullName(), entry.GetPath())
 		}
 	}
