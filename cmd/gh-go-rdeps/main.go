@@ -13,6 +13,9 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v32/github"
+	"github.com/pmatseykanets/gh-tools/auth"
+	gh "github.com/pmatseykanets/gh-tools/github"
+	"github.com/pmatseykanets/gh-tools/terminal"
 	"github.com/pmatseykanets/gh-tools/version"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/oauth2"
@@ -27,28 +30,25 @@ Usage: gh-go-rdeps [flags] <owner> <path>
 
 Flags:
   -help         Print this information and exit
-  -progress     Show the progress
-  -regexp=      Regexp to match repository names
+  -repo         The pattern to match repository names
+  -token        Prompt for an Access Token
   -version      Print the version and exit
-
-Environment variables:
-  GITHUB_TOKEN  an authentication token for github.com API requests
 `
 	fmt.Println(usage)
 }
 
 func main() {
 	if err := run(context.Background()); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		fmt.Printf("error: %s\n", err)
 		os.Exit(1)
 	}
 }
 
 type config struct {
-	owner    string
-	modpath  string
-	regexp   *regexp.Regexp
-	progress bool
+	owner      string
+	modpath    string
+	repoRegexp *regexp.Regexp
+	token      bool // Propmt for an access token.
 }
 
 type finder struct {
@@ -68,13 +68,13 @@ func readConfig() (config, error) {
 
 	var (
 		showVersion, showHelp bool
-		nameRegExp            string
+		repo                  string
 		err                   error
 	)
 
 	flag.BoolVar(&showHelp, "help", showHelp, "Print this information and exit")
-	flag.BoolVar(&config.progress, "progress", config.progress, "Show progress")
-	flag.StringVar(&nameRegExp, "regexp", "", "Regexp to match repository names")
+	flag.StringVar(&repo, "repo", "", "The pattern to match repository names")
+	flag.BoolVar(&config.token, "token", config.token, "Prompt for Access Token")
 	flag.BoolVar(&showVersion, "version", showVersion, "Print version and exit")
 	flag.Usage = usage
 	flag.Parse()
@@ -105,10 +105,10 @@ func readConfig() (config, error) {
 		return config, fmt.Errorf("mod path can't be empty")
 	}
 
-	if nameRegExp != "" {
-		config.regexp, err = regexp.Compile(nameRegExp)
+	if repo != "" {
+		config.repoRegexp, err = regexp.Compile(repo)
 		if err != nil {
-			return config, fmt.Errorf("invalid name pattern: %s", err)
+			return config, fmt.Errorf("invalid repo pattern: %s: %s", repo, err)
 		}
 	}
 
@@ -127,22 +127,30 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	ghToken := os.Getenv("GITHUB_TOKEN")
-	if ghToken == "" {
-		return fmt.Errorf("GITHUB_TOKEN env variable should be set")
+	var token string
+	if finder.config.token {
+		token, _ = terminal.PasswordPrompt("Access Token: ")
+	} else {
+		token = auth.GetToken()
+	}
+	if token == "" {
+		return fmt.Errorf("access token is required")
 	}
 
-	finder.gh = github.NewClient(
-		oauth2.NewClient(ctx, oauth2.StaticTokenSource(
-			&oauth2.Token{AccessToken: ghToken}),
-		),
-	)
+	finder.gh = github.NewClient(oauth2.NewClient(ctx, oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: token},
+	)))
 
 	return finder.find(ctx)
 }
 
 func (f *finder) find(ctx context.Context) error {
-	repos, err := f.getRepos(ctx)
+	repoFinder := gh.RepoFinder{
+		Client:     f.gh,
+		Owner:      f.config.owner,
+		RepoRegexp: f.config.repoRegexp,
+	}
+	repos, err := repoFinder.Find(ctx)
 	if err != nil {
 		return err
 	}
@@ -158,12 +166,8 @@ func (f *finder) find(ctx context.Context) error {
 		gopkgProject GopkgProject
 		dependencies []string
 	)
-repos:
+nextRepo:
 	for _, repo = range repos {
-		if f.config.progress {
-			fmt.Fprint(f.stderr, ".")
-		}
-
 		goRepo, err = f.goRepo(ctx, repo)
 		if err != nil {
 			return err
@@ -188,17 +192,17 @@ repos:
 			for _, require = range mod.Require {
 				if strings.HasPrefix(require.Mod.Path, f.config.modpath) {
 					dependencies = append(dependencies, mod.Module.Mod.Path)
-					continue repos
+					continue nextRepo
 				}
 			}
 			for _, replace = range mod.Replace {
 				if strings.HasPrefix(replace.Old.Path, f.config.modpath) ||
 					strings.HasPrefix(replace.New.Path, f.config.modpath) {
 					dependencies = append(dependencies, mod.Module.Mod.Path)
-					continue repos
+					continue nextRepo
 				}
 			}
-			continue repos
+			continue nextRepo
 		}
 
 		// Gopkg.toml.
@@ -208,7 +212,7 @@ repos:
 		}
 
 		if len(contents) == 0 {
-			continue repos
+			continue nextRepo
 		}
 
 		gopkg, err = parseGopkg(bytes.NewReader(contents))
@@ -220,23 +224,20 @@ repos:
 			if strings.HasPrefix(gopkgProject.Name, f.config.modpath) ||
 				strings.HasPrefix(gopkgProject.Source, f.config.modpath) {
 				dependencies = append(dependencies, fmt.Sprintf("github.com/%s/%s", f.config.owner, repo.GetName()))
-				continue repos
+				continue nextRepo
 			}
 		}
 		for _, gopkgProject = range gopkg.Overrides {
 			if strings.HasPrefix(gopkgProject.Name, f.config.modpath) ||
 				strings.HasPrefix(gopkgProject.Source, f.config.modpath) {
 				dependencies = append(dependencies, fmt.Sprintf("github.com/%s/%s", f.config.owner, repo.GetName()))
-				continue repos
+				continue nextRepo
 			}
 		}
 	}
 
 	sort.Strings(dependencies)
 
-	if f.config.progress {
-		fmt.Fprintln(f.stderr)
-	}
 	for _, dependency := range dependencies {
 		fmt.Fprintln(f.stdout, dependency)
 	}
@@ -279,84 +280,4 @@ func (f *finder) goRepo(ctx context.Context, repo *github.Repository) (bool, err
 	}
 
 	return false, nil
-}
-
-func (f *finder) getUserRepos(ctx context.Context) ([]*github.Repository, error) {
-	opt := &github.RepositoryListOptions{
-		ListOptions: github.ListOptions{PerPage: 30},
-		Affiliation: "owner",
-	}
-	var list []*github.Repository
-	for {
-		repos, resp, err := f.gh.Repositories.List(ctx, f.config.owner, opt)
-		if err != nil {
-			return nil, fmt.Errorf("can't read repositories: %s", err)
-		}
-
-		if f.config.regexp == nil {
-			list = append(list, repos...)
-		} else {
-			for _, repo := range repos {
-				if f.config.regexp.Match([]byte(repo.GetName())) {
-					list = append(list, repo)
-				}
-			}
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
-	}
-
-	return list, nil
-}
-
-func (f *finder) getOrgRepos(ctx context.Context) ([]*github.Repository, error) {
-	opt := &github.RepositoryListByOrgOptions{
-		ListOptions: github.ListOptions{PerPage: 30},
-	}
-	var list []*github.Repository
-	for {
-		repos, resp, err := f.gh.Repositories.ListByOrg(ctx, f.config.owner, opt)
-		if err != nil {
-			return nil, fmt.Errorf("can't read repositories: %s", err)
-		}
-
-		if f.config.regexp == nil {
-			list = append(list, repos...)
-		} else {
-			for _, repo := range repos {
-				if f.config.regexp.Match([]byte(repo.GetName())) {
-					list = append(list, repo)
-				}
-			}
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
-	}
-
-	return list, nil
-}
-
-func (f *finder) getRepos(ctx context.Context) ([]*github.Repository, error) {
-	owner, _, err := f.gh.Users.Get(ctx, f.config.owner)
-	if err != nil {
-		return nil, fmt.Errorf("can't read owner information: %s", err)
-	}
-
-	var repos []*github.Repository
-	switch t := owner.GetType(); t {
-	case "User":
-		repos, err = f.getUserRepos(ctx)
-	case "Organization":
-		repos, err = f.getOrgRepos(ctx)
-	default:
-		err = fmt.Errorf("unknown owner type %s", t)
-	}
-
-	return repos, err
 }

@@ -4,11 +4,15 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
 
 	"github.com/google/go-github/v32/github"
+	"github.com/pmatseykanets/gh-tools/auth"
+	gh "github.com/pmatseykanets/gh-tools/github"
+	"github.com/pmatseykanets/gh-tools/terminal"
 	"github.com/pmatseykanets/gh-tools/version"
 	"golang.org/x/oauth2"
 )
@@ -23,11 +27,9 @@ Usage: gh-purge-artifacts [flags] [owner][/repo]
 Flags:
   -help         Print this information and exit
   -dry-run      Dry run
-  -regexp=      Regexp to match repository names
+  -repo         The pattern to match repository names
+  -token        Prompt for an Access Token
   -version      Print the version and exit
-
-Environment variables:
-  GITHUB_TOKEN  an authentication token for github.com API requests
 `
 	fmt.Println(usage)
 }
@@ -40,15 +42,18 @@ func main() {
 }
 
 type config struct {
-	owner  string
-	repo   string
-	regexp *regexp.Regexp
-	dryRun bool
+	owner      string
+	repo       string
+	repoRegexp *regexp.Regexp
+	dryRun     bool
+	token      bool // Propmt for an access token.
 }
 
 type purger struct {
 	gh     *github.Client
 	config config
+	stdout io.WriteCloser
+	stderr io.WriteCloser
 }
 
 func readConfig() (config, error) {
@@ -59,13 +64,15 @@ func readConfig() (config, error) {
 
 	config := config{}
 
-	var showVersion, showHelp bool
-	var nameRegExp string
-	var err error
-
+	var (
+		showVersion, showHelp bool
+		repo                  string
+		err                   error
+	)
 	flag.BoolVar(&config.dryRun, "dry-run", config.dryRun, "Dry run")
 	flag.BoolVar(&showHelp, "help", showHelp, "Print this information and exit")
-	flag.StringVar(&nameRegExp, "regexp", "", "Regexp to match repository names")
+	flag.StringVar(&repo, "repo", "", "The pattern to match repository names")
+	flag.BoolVar(&config.token, "token", config.token, "Prompt for Access Token")
 	flag.BoolVar(&showVersion, "version", showVersion, "Print version and exit")
 	flag.Usage = usage
 	flag.Parse()
@@ -96,10 +103,10 @@ func readConfig() (config, error) {
 		return config, fmt.Errorf("owner is required")
 	}
 
-	if nameRegExp != "" {
-		config.regexp, err = regexp.Compile(nameRegExp)
+	if repo != "" {
+		config.repoRegexp, err = regexp.Compile(repo)
 		if err != nil {
-			return config, fmt.Errorf("invalid name pattern: %s", err)
+			return config, fmt.Errorf("invalid name pattern: %s: %s", repo, err)
 		}
 	}
 
@@ -108,28 +115,41 @@ func readConfig() (config, error) {
 
 func run(ctx context.Context) error {
 	var err error
-	purger := &purger{}
+
+	purger := &purger{
+		stdout: os.Stdout,
+		stderr: os.Stderr,
+	}
 	purger.config, err = readConfig()
 	if err != nil {
 		return err
 	}
 
-	ghToken := os.Getenv("GITHUB_TOKEN")
-	if ghToken == "" {
-		return fmt.Errorf("GITHUB_TOKEN env variable should be set")
+	var token string
+	if purger.config.token {
+		token, _ = terminal.PasswordPrompt("Access Token: ")
+	} else {
+		token = auth.GetToken()
+	}
+	if token == "" {
+		return fmt.Errorf("access token is required")
 	}
 
-	purger.gh = github.NewClient(
-		oauth2.NewClient(ctx, oauth2.StaticTokenSource(
-			&oauth2.Token{AccessToken: ghToken}),
-		),
-	)
+	purger.gh = github.NewClient(oauth2.NewClient(ctx, oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: token},
+	)))
 
 	return purger.purge(ctx)
 }
 
 func (p *purger) purge(ctx context.Context) error {
-	repos, err := p.getRepos(ctx)
+	repoFinder := gh.RepoFinder{
+		Client:     p.gh,
+		Owner:      p.config.owner,
+		Repo:       p.config.repo,
+		RepoRegexp: p.config.repoRegexp,
+	}
+	repos, err := repoFinder.Find(ctx)
 	if err != nil {
 		return err
 	}
@@ -145,114 +165,16 @@ func (p *purger) purge(ctx context.Context) error {
 	}
 
 	if totalRepos := len(repos); totalRepos > 1 {
-		fmt.Printf("Total:")
+		fmt.Fprintf(p.stdout, "Total:")
 		if p.config.dryRun {
-			fmt.Printf(" found")
+			fmt.Fprintf(p.stdout, " found")
 		} else {
-			fmt.Printf(" purged")
+			fmt.Fprintf(p.stdout, " purged")
 		}
-		fmt.Printf(" %d artifacts (%s) in %d repos\n", totalDeleted, formatSize(totalSize), totalRepos)
+		fmt.Fprintf(p.stdout, " %d artifacts (%s) in %d repos\n", totalDeleted, formatSize(totalSize), totalRepos)
 	}
 
 	return nil
-}
-
-func (p *purger) getSingleRepo(ctx context.Context) (*github.Repository, error) {
-	repo, _, err := p.gh.Repositories.Get(ctx, p.config.owner, p.config.repo)
-	if err != nil {
-		return nil, fmt.Errorf("can't read repository: %s", err)
-	}
-
-	return repo, nil
-}
-
-func (p *purger) getUserRepos(ctx context.Context) ([]*github.Repository, error) {
-	opt := &github.RepositoryListOptions{
-		ListOptions: github.ListOptions{PerPage: 30},
-		Affiliation: "owner",
-	}
-	var list []*github.Repository
-	for {
-		repos, resp, err := p.gh.Repositories.List(ctx, p.config.owner, opt)
-		if err != nil {
-			return nil, fmt.Errorf("can't read repositories: %s", err)
-		}
-
-		if p.config.regexp == nil {
-			list = append(list, repos...)
-		} else {
-			for _, repo := range repos {
-				if p.config.regexp.Match([]byte(repo.GetName())) {
-					list = append(list, repo)
-				}
-			}
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
-	}
-
-	return list, nil
-}
-
-func (p *purger) getOrgRepos(ctx context.Context) ([]*github.Repository, error) {
-	opt := &github.RepositoryListByOrgOptions{
-		ListOptions: github.ListOptions{PerPage: 30},
-	}
-	var list []*github.Repository
-	for {
-		repos, resp, err := p.gh.Repositories.ListByOrg(ctx, p.config.owner, opt)
-		if err != nil {
-			return nil, fmt.Errorf("can't read repositories: %s", err)
-		}
-
-		if p.config.regexp == nil {
-			list = append(list, repos...)
-		} else {
-			for _, repo := range repos {
-				if p.config.regexp.Match([]byte(repo.GetName())) {
-					list = append(list, repo)
-				}
-			}
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
-	}
-
-	return list, nil
-}
-
-func (p *purger) getRepos(ctx context.Context) ([]*github.Repository, error) {
-	owner, _, err := p.gh.Users.Get(ctx, p.config.owner)
-	if err != nil {
-		return nil, fmt.Errorf("can't read owner information: %s", err)
-	}
-
-	// A single repository.
-	if p.config.repo != "" {
-		repo, err := p.getSingleRepo(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return []*github.Repository{repo}, nil
-	}
-
-	var repos []*github.Repository
-	switch t := owner.GetType(); t {
-	case "User":
-		repos, err = p.getUserRepos(ctx)
-	case "Organization":
-		repos, err = p.getOrgRepos(ctx)
-	default:
-		err = fmt.Errorf("unknown owner type %s", t)
-	}
-
-	return repos, err
 }
 
 func (p *purger) purgeRepoArtifacts(ctx context.Context, repo *github.Repository) (int64, int64, error) {
@@ -275,19 +197,19 @@ func (p *purger) purgeRepoArtifacts(ctx context.Context, repo *github.Repository
 		opt.Page = resp.NextPage
 	}
 
-	fmt.Printf("%s/%s", owner, name)
+	fmt.Fprintf(p.stdout, "%s/%s", owner, name)
 
 	var deleted, size int64
 	defer func() {
 		if deleted > 0 {
 			if p.config.dryRun {
-				fmt.Printf(" found")
+				fmt.Fprintf(p.stdout, " found")
 			} else {
-				fmt.Printf(" purged")
+				fmt.Fprintf(p.stdout, " purged")
 			}
-			fmt.Printf(" %d out of %d artifacts (%s)", len(artifacts), deleted, formatSize(size))
+			fmt.Fprintf(p.stdout, " %d out of %d artifacts (%s)", len(artifacts), deleted, formatSize(size))
 		}
-		fmt.Println()
+		fmt.Fprintln(p.stdout)
 	}()
 	for _, artifact := range artifacts {
 		if !p.config.dryRun {

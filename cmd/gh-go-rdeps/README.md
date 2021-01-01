@@ -17,14 +17,14 @@ Usage: gh-go-rdeps [flags] <owner> <path>
 
 Flags:
   -help         Print this information and exit
-  -progress     Show the progress
-  -regexp=      Regexp to match repository names
+  -repo         The pattern to match repository names
+  -token        Prompt for an Access Token
   -version      Print the version and exit
 ```
 
 ## Environment variables
 
-`GITHUB_TOKEN` shoud be set and contain GitHub personal access token
+`GHTOOLS_TOKEN` and `GITHUB_TOKEN` in the order of precedence can be used to set a GitHub access token.
 
 ### Examples
 
@@ -37,5 +37,5 @@ gh-go-rdeps owner golang.org/x/sync
 Find all Go repositories that start with `api` and depend on `github.com/owner/library`
 
 ```sh
-gh-go-rdeps -regexp '^api' owner github.com/owner/library
+gh-go-rdeps -repo '^api' owner github.com/owner/library
 ```
