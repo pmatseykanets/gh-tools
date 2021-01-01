@@ -12,6 +12,9 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v32/github"
+	"github.com/pmatseykanets/gh-tools/auth"
+	gh "github.com/pmatseykanets/gh-tools/github"
+	"github.com/pmatseykanets/gh-tools/terminal"
 	"github.com/pmatseykanets/gh-tools/version"
 	"golang.org/x/oauth2"
 )
@@ -34,11 +37,9 @@ Flags:
   -path         The pattern to match the pathname
   -no-path      The pattern to reject the pathname
   -repo         The pattern to match repository names
+  -token        Prompt for an Access Token
   -type         File type f - file, d - directory
   -version      Print the version and exit
-
-Environment variables:
-  GITHUB_TOKEN  an authentication token for github.com API requests
 `
 	fmt.Printf("gh-find version %s\n", version.Version)
 	fmt.Println(usage)
@@ -69,6 +70,7 @@ type config struct {
 	pathRegexp   []*regexp.Regexp // The pattern to match the pathname.
 	noPathRegexp []*regexp.Regexp // The pattern to reject the pathname.
 	grepRegexp   *regexp.Regexp   // The pattern to match the contents of matching files.
+	token        bool             // Propmt for an access token.
 }
 
 type finder struct {
@@ -106,8 +108,8 @@ func readConfig() (config, error) {
 		name, path, noName, noPath stringList
 		err                        error
 	)
-	flag.BoolVar(&showHelp, "help", showHelp, "Print this information and exit")
 	flag.StringVar(&config.branch, "branch", "", "Repository branch name if different from the default")
+	flag.BoolVar(&showHelp, "help", showHelp, "Print this information and exit")
 	flag.StringVar(&grep, "grep", "", "The pattern to match the file contents")
 	flag.IntVar(&config.maxDepth, "maxdepth", 0, "Descend at most n directory levels")
 	flag.IntVar(&config.minDepth, "mindepth", 0, "Descend at least n directory levels")
@@ -116,6 +118,7 @@ func readConfig() (config, error) {
 	flag.Var(&path, "path", "The pattern to match the pathname")
 	flag.Var(&noPath, "no-path", "The pattern to reject the pathname")
 	flag.StringVar(&repo, "repo", "", "The pattern to match repository names")
+	flag.BoolVar(&config.token, "token", config.token, "Prompt for Access Token")
 	flag.StringVar(&config.ftype, "type", "", "File type f - file, d - directory")
 	flag.BoolVar(&showVersion, "version", showVersion, "Print version and exit")
 	flag.Usage = usage
@@ -217,22 +220,31 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	ghToken := os.Getenv("GITHUB_TOKEN")
-	if ghToken == "" {
-		return fmt.Errorf("GITHUB_TOKEN env variable should be set")
+	var token string
+	if finder.config.token {
+		token, _ = terminal.PasswordPrompt("Access Token: ")
+	} else {
+		token = auth.GetToken()
+	}
+	if token == "" {
+		return fmt.Errorf("access token is required")
 	}
 
-	finder.gh = github.NewClient(
-		oauth2.NewClient(ctx, oauth2.StaticTokenSource(
-			&oauth2.Token{AccessToken: ghToken}),
-		),
-	)
+	finder.gh = github.NewClient(oauth2.NewClient(ctx, oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: token},
+	)))
 
 	return finder.find(ctx)
 }
 
 func (f *finder) find(ctx context.Context) error {
-	repos, err := f.getRepos(ctx)
+	repoFinder := gh.RepoFinder{
+		Client:     f.gh,
+		Owner:      f.config.owner,
+		Repo:       f.config.repo,
+		RepoRegexp: f.config.repoRegexp,
+	}
+	repos, err := repoFinder.Find(ctx)
 	if err != nil {
 		return err
 	}
@@ -241,14 +253,11 @@ func (f *finder) find(ctx context.Context) error {
 		branch, entryPath, basename string
 		level                       int
 	)
-	// REPOS:
 	for _, repo := range repos {
 		branch = f.config.branch
 		if branch == "" {
 			branch = repo.GetDefaultBranch()
 		}
-
-		// fmt.Println(repo.GetFullName(), branch)
 
 		tree, resp, err := f.gh.Git.GetTree(ctx, f.config.owner, *repo.Name, branch, true)
 		if err != nil {
@@ -306,12 +315,12 @@ func (f *finder) find(ctx context.Context) error {
 					return err
 				}
 				for _, match := range results.matches {
-					fmt.Println(repo.GetFullName(), entry.GetPath(), match.lineno, match.line)
+					fmt.Fprintln(f.stdout, repo.GetFullName(), entry.GetPath(), match.lineno, match.line)
 				}
 				continue nextEntry
 			}
 
-			fmt.Println(repo.GetFullName(), entry.GetPath())
+			fmt.Fprintln(f.stdout, repo.GetFullName(), entry.GetPath())
 		}
 	}
 
@@ -331,112 +340,6 @@ func (f *finder) grepContents(ctx context.Context, repo *github.Repository, bran
 	defer contents.Close()
 
 	return grep(contents, f.config.grepRegexp)
-}
-
-func (f *finder) getSingleRepo(ctx context.Context) (*github.Repository, error) {
-	repo, _, err := f.gh.Repositories.Get(ctx, f.config.owner, f.config.repo)
-	if err != nil {
-		return nil, fmt.Errorf("can't read repository: %s", err)
-	}
-
-	return repo, nil
-}
-
-func (f *finder) getUserRepos(ctx context.Context) ([]*github.Repository, error) {
-	opt := &github.RepositoryListOptions{
-		ListOptions: github.ListOptions{PerPage: 30},
-		Affiliation: "owner",
-	}
-	var (
-		list, repos []*github.Repository
-		resp        *github.Response
-		err         error
-	)
-	for {
-		repos, resp, err = f.gh.Repositories.List(ctx, f.config.owner, opt)
-		if err != nil {
-			return nil, fmt.Errorf("can't read repositories: %s", err)
-		}
-
-		if f.config.repoRegexp == nil {
-			list = append(list, repos...)
-		} else {
-			for _, repo := range repos {
-				if f.config.repoRegexp.MatchString(repo.GetName()) {
-					list = append(list, repo)
-				}
-			}
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
-	}
-
-	return list, nil
-}
-
-func (f *finder) getOrgRepos(ctx context.Context) ([]*github.Repository, error) {
-	opt := &github.RepositoryListByOrgOptions{
-		ListOptions: github.ListOptions{PerPage: 30},
-	}
-	var (
-		list, repos []*github.Repository
-		resp        *github.Response
-		err         error
-	)
-	for {
-		repos, resp, err = f.gh.Repositories.ListByOrg(ctx, f.config.owner, opt)
-		if err != nil {
-			return nil, fmt.Errorf("can't read repositories: %s", err)
-		}
-
-		if f.config.repoRegexp == nil {
-			list = append(list, repos...)
-		} else {
-			for _, repo := range repos {
-				if f.config.repoRegexp.Match([]byte(repo.GetName())) {
-					list = append(list, repo)
-				}
-			}
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		opt.Page = resp.NextPage
-	}
-
-	return list, nil
-}
-
-func (f *finder) getRepos(ctx context.Context) ([]*github.Repository, error) {
-	owner, _, err := f.gh.Users.Get(ctx, f.config.owner)
-	if err != nil {
-		return nil, fmt.Errorf("can't read owner information: %s", err)
-	}
-
-	// A single repository.
-	if f.config.repo != "" {
-		repo, err := f.getSingleRepo(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return []*github.Repository{repo}, nil
-	}
-
-	var repos []*github.Repository
-	switch t := owner.GetType(); t {
-	case "User":
-		repos, err = f.getUserRepos(ctx)
-	case "Organization":
-		repos, err = f.getOrgRepos(ctx)
-	default:
-		err = fmt.Errorf("unknown owner type %s", t)
-	}
-
-	return repos, err
 }
 
 func levels(path string) int {

@@ -18,13 +18,14 @@ Usage: gh-purge-artifacts [flags] [owner][/repo]
 Flags:
   -help         Print this information and exit
   -dry-run      Dry run
-  -regexp=      Regexp to match repository names
+  -repo         The pattern to match repository names
+  -token        Prompt for an Access Token
   -version      Print the version and exit
 ```
 
 ## Environment variables
 
-`GITHUB_TOKEN` shoud be set and contain GitHub personal access token
+`GHTOOLS_TOKEN` and `GITHUB_TOKEN` in the order of precedence can be used to set a GitHub access token.
 
 ### Examples
 
@@ -43,7 +44,7 @@ gh-purge-artifacts owner
 Purge artifacts in repositories starting with 'api'
 
 ```sh
-gh-purge-artifacts -regexp '^api' owner
+gh-purge-artifacts -repo '^api' owner
 ```
 
 Dry-run mode. List found atifacts but don't purge.

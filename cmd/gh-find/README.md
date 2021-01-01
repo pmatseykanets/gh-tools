@@ -32,7 +32,7 @@ Flags:
 
 ## Environment variables
 
-`GITHUB_TOKEN` shoud be set and contain GitHub personal access token
+`GHTOOLS_TOKEN` and `GITHUB_TOKEN` in the order of precedence can be used to set a GitHub access token.
 
 ### Examples
 
