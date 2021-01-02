@@ -16,7 +16,7 @@ type grepResults struct {
 	matches  []grepMatch
 }
 
-func grep(contents io.Reader, pattern *regexp.Regexp) (*grepResults, error) {
+func grep(contents io.Reader, pattern *regexp.Regexp, limit int) (*grepResults, error) {
 	if contents == nil || pattern == nil {
 		return &grepResults{}, nil
 	}
@@ -37,6 +37,9 @@ func grep(contents io.Reader, pattern *regexp.Regexp) (*grepResults, error) {
 	scanner := bufio.NewScanner(reader)
 	scanner.Split(bufio.ScanLines)
 	for scanner.Scan() {
+		if limit > 0 && len(results.matches) >= limit {
+			break
+		}
 		lineno++
 		if pattern.Match(scanner.Bytes()) {
 			results.matches = append(results.matches, grepMatch{line: scanner.Text(), lineno: lineno})

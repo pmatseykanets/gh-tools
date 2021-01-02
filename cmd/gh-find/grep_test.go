@@ -13,6 +13,7 @@ func TestGrep(t *testing.T) {
 		desc    string
 		input   []byte
 		regex   *regexp.Regexp
+		limit   int
 		results *grepResults
 	}{
 		{
@@ -57,6 +58,17 @@ func TestGrep(t *testing.T) {
 			},
 		},
 		{
+			desc:  "limit matches",
+			input: []byte("\nfoobar\nbarfoo\n"),
+			regex: regexp.MustCompile("foo"),
+			limit: 1,
+			results: &grepResults{
+				matches: []grepMatch{
+					{line: "foobar", lineno: int64(2)},
+				},
+			},
+		},
+		{
 			desc:    "no matches",
 			input:   []byte("\nfoobar\nbarfoo\n"),
 			regex:   regexp.MustCompile("baz"),
@@ -85,7 +97,7 @@ func TestGrep(t *testing.T) {
 			if tt.input != nil {
 				reader = bytes.NewReader(tt.input)
 			}
-			got, err := grep(reader, tt.regex)
+			got, err := grep(reader, tt.regex, tt.limit)
 			if err != nil {
 				t.Fatal(err)
 			}
