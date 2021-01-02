@@ -67,7 +67,7 @@ gh-find -name '^README$' -name '^LICENSE$' -no-path '^vendor/' -no-path '^src/ve
 List `README` files in the root directories of all repositories in the `golang` GitHub organization:
 
 ```sh
-gh-find -name '^README$' -maxdepth 1 golang
+gh-find -name '^README$' -max-depth 1 golang
 ```
 
 List all `LICENSE` files repositories which name starts with `go` in the `golang` GitHub organization:
