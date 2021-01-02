@@ -16,18 +16,28 @@ Usage: gh-find [flags] [owner][/repo]
   repo          Repository name
 
 Flags:
-  -help         Print this information and exit
-  -branch       Repository branch name if different from the default
-  -grep         The pattern to match the file contents
-  -maxdepth     Descend at most n directory levels
-  -mindepth     Descend at least n directory levels
-  -name         The pattern to match the last component of the pathname
-  -no-name      The pattern to reject the last component of the pathname
-  -path         The pattern to match the pathname
-  -no-path      The pattern to reject the pathname
-  -repo         The pattern to match repository names
-  -type         File type f - file, d - directory
-  -version      Print the version and exit
+  -help, h          Print this information and exit
+  -branc            The branch name if different from the default
+  -grep             The pattern to match the file contents. Implies
+                      -type f
+  -max-depth        Descend at most n directory levels
+  -max-grep-results Limit the number of grep results
+  -max-repo-results Limit the number of matched entries per repository
+  -max-results      Limit the number of matched entries
+  -min-depth        Descend at least n directory levels
+  -name             The pattern to match the last component of the pathname
+  -no-name          The pattern to reject the last component of the pathname
+  -no-matches       List repositories with no matches. Implies
+                      -max-results 0
+                      -max-grep-results 1
+                      -max-repo-results 1
+  -no-path          The pattern to reject the pathname
+  -path             The pattern to match the pathname
+  -repo             The pattern to match repository names
+  -size             Limit results based on the file size [+-]<d><u>
+  -token            Prompt for an Access Token
+  -type             The entry type f - file, d - directory
+  -version          Print the version and exit
 ```
 
 ## Environment variables
@@ -63,7 +73,7 @@ gh-find -name '^README$' -name '^LICENSE$' -no-path '^vendor/' -no-path '^src/ve
 List `README` files in the root directories of all repositories in the `golang` GitHub organization:
 
 ```sh
-gh-find -name '^README$' -maxdepth 1 golang
+gh-find -name '^README$' -max-depth 1 golang
 ```
 
 List all `LICENSE` files repositories which name starts with `go` in the `golang` GitHub organization:

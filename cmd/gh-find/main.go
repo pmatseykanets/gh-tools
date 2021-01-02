@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-github/v32/github"
 	"github.com/pmatseykanets/gh-tools/auth"
 	gh "github.com/pmatseykanets/gh-tools/github"
+	"github.com/pmatseykanets/gh-tools/size"
 	"github.com/pmatseykanets/gh-tools/terminal"
 	"github.com/pmatseykanets/gh-tools/version"
 	"golang.org/x/oauth2"
@@ -27,19 +28,28 @@ Usage: gh-find [flags] [owner][/repo]
   repo          Repository name
 
 Flags:
-  -help         Print this information and exit
-  -branch       Repository branch name if different from the default
-  -grep         The pattern to match the file contents
-  -maxdepth     Descend at most n directory levels
-  -mindepth     Descend at least n directory levels
-  -name         The pattern to match the last component of the pathname
-  -no-name      The pattern to reject the last component of the pathname
-  -path         The pattern to match the pathname
-  -no-path      The pattern to reject the pathname
-  -repo         The pattern to match repository names
-  -token        Prompt for an Access Token
-  -type         File type f - file, d - directory
-  -version      Print the version and exit
+  -help, h          Print this information and exit
+  -branc            The branch name if different from the default
+  -grep             The pattern to match the file contents. Implies
+                      -type f
+  -max-depth        Descend at most n directory levels
+  -max-grep-results Limit the number of grep results
+  -max-repo-results Limit the number of matched entries per repository
+  -max-results      Limit the number of matched entries
+  -min-depth        Descend at least n directory levels
+  -name             The pattern to match the last component of the pathname
+  -no-name          The pattern to reject the last component of the pathname
+  -no-matches       List repositories with no matches. Implies
+                      -max-results 0
+                      -max-grep-results 1
+                      -max-repo-results 1
+  -no-path          The pattern to reject the pathname
+  -path             The pattern to match the pathname
+  -repo             The pattern to match repository names
+  -size             Limit results based on the file size [+-]<d><u>
+  -token            Prompt for an Access Token
+  -type             The entry type f - file, d - directory
+  -version          Print the version and exit
 `
 	fmt.Printf("gh-find version %s\n", version.Version)
 	fmt.Println(usage)
@@ -57,20 +67,41 @@ const (
 	typeDir  = "d"
 )
 
+type sizePredicate struct {
+	op    int   // <0 - less than, 0 - equals, >0 greater than
+	value int64 // Size in bytes
+}
+
+func (p *sizePredicate) match(value int64) bool {
+	switch p.op {
+	case 0:
+		return value == p.value
+	case 1:
+		return value >= p.value
+	default:
+		return value <= p.value
+	}
+}
+
 type config struct {
-	owner        string
-	repo         string
-	repoRegexp   *regexp.Regexp
-	branch       string
-	ftype        string           // File type.
-	minDepth     int              // Descend at least n directory levels.
-	maxDepth     int              // Descend at most n directory levels.
-	nameRegexp   []*regexp.Regexp // The pattern to match the last component of the pathname.
-	noNameRegexp []*regexp.Regexp // The pattern to reject the last component of the pathname.
-	pathRegexp   []*regexp.Regexp // The pattern to match the pathname.
-	noPathRegexp []*regexp.Regexp // The pattern to reject the pathname.
-	grepRegexp   *regexp.Regexp   // The pattern to match the contents of matching files.
-	token        bool             // Propmt for an access token.
+	owner          string
+	repo           string
+	repoRegexp     *regexp.Regexp   // The pattern to match respository names.
+	branch         string           // The branch name if different from the default.
+	ftype          string           // The entry type f - file, d - directory.
+	minDepth       int              // Descend at least n directory levels.
+	maxDepth       int              // Descend at most n directory levels.
+	maxResults     int              // Limit the number of matched entries.
+	maxRepoResults int              // Limit the number of matched entries per repository.
+	nameRegexp     []*regexp.Regexp // The pattern to match the last component of the pathname.
+	noNameRegexp   []*regexp.Regexp // The pattern to reject the last component of the pathname.
+	pathRegexp     []*regexp.Regexp // The pattern to match the pathname.
+	noPathRegexp   []*regexp.Regexp // The pattern to reject the pathname.
+	grepRegexp     *regexp.Regexp   // The pattern to match the contents of matching files.
+	token          bool             // Propmt for an access token.
+	size           *sizePredicate   // Limit results based on the file size [+-]<d><u>.
+	noMatches      bool             // List repositories with no matches.
+	maxGrepResults int              // Limit the number of grep results.
 }
 
 type finder struct {
@@ -104,20 +135,25 @@ func readConfig() (config, error) {
 
 	var (
 		showVersion, showHelp      bool
-		grep, repo                 string
+		grep, repo, fsize          string
 		name, path, noName, noPath stringList
 		err                        error
 	)
-	flag.StringVar(&config.branch, "branch", "", "Repository branch name if different from the default")
+	flag.StringVar(&config.branch, "branch", "", "The branch name if different from the default")
 	flag.BoolVar(&showHelp, "help", showHelp, "Print this information and exit")
 	flag.StringVar(&grep, "grep", "", "The pattern to match the file contents")
-	flag.IntVar(&config.maxDepth, "maxdepth", 0, "Descend at most n directory levels")
-	flag.IntVar(&config.minDepth, "mindepth", 0, "Descend at least n directory levels")
+	flag.IntVar(&config.maxDepth, "max-depth", 0, "Descend at most n directory levels")
+	flag.IntVar(&config.maxGrepResults, "max-grep-results", 0, "Limit the number of grep results.")
+	flag.IntVar(&config.maxResults, "max-results", 0, "Limit the number of matched entries")
+	flag.IntVar(&config.maxRepoResults, "max-repo-results", 0, "Limit the number of matched entries per repository")
+	flag.IntVar(&config.minDepth, "min-depth", 0, "Descend at least n directory levels")
 	flag.Var(&name, "name", "The pattern to match the last component of the pathname")
+	flag.BoolVar(&config.noMatches, "no-matches", config.noMatches, "List repositories with no matches")
 	flag.Var(&noName, "no-name", "The pattern to reject the last component of the pathname")
-	flag.Var(&path, "path", "The pattern to match the pathname")
 	flag.Var(&noPath, "no-path", "The pattern to reject the pathname")
+	flag.Var(&path, "path", "The pattern to match the pathname")
 	flag.StringVar(&repo, "repo", "", "The pattern to match repository names")
+	flag.StringVar(&fsize, "size", "", "Limit results based on the file size [+-]<d><u>")
 	flag.BoolVar(&config.token, "token", config.token, "Prompt for Access Token")
 	flag.StringVar(&config.ftype, "type", "", "File type f - file, d - directory")
 	flag.BoolVar(&showVersion, "version", showVersion, "Print version and exit")
@@ -192,17 +228,57 @@ func readConfig() (config, error) {
 		if config.grepRegexp, err = regexp.Compile(grep); err != nil {
 			return config, fmt.Errorf("invalid grep pattern: %s", err)
 		}
-		config.ftype = typeFile // Implies type file.
+		config.ftype = typeFile // Implies file type.
 	}
 
 	if config.maxDepth < 0 {
-		return config, fmt.Errorf("maxdepth value should be positive")
+		return config, fmt.Errorf("max-depth should be positive")
 	}
 	if config.minDepth < 0 {
-		return config, fmt.Errorf("mindepth value should be positive")
+		return config, fmt.Errorf("min-depth should be positive")
 	}
 	if config.maxDepth > 0 && config.minDepth > 0 && config.maxDepth < config.minDepth {
-		return config, fmt.Errorf("mindepth can't be greater than maxdepth")
+		return config, fmt.Errorf("min-depth should be less than max-depth")
+	}
+	if config.maxResults < 0 {
+		return config, fmt.Errorf("max-results should be positive")
+	}
+	if config.maxRepoResults < 0 {
+		return config, fmt.Errorf("max-repo-results should be positive")
+	}
+	if config.maxGrepResults < 0 {
+		return config, fmt.Errorf("max-grep-results should be positive")
+	}
+
+	if fsize != "" {
+		p := &sizePredicate{}
+		switch fsize[0] {
+		case '+':
+			p.op = 1
+		case '-':
+			p.op = -1
+		}
+		offset := 0
+		if p.op != 0 {
+			offset = 1
+		}
+		value, err := size.Parse(fsize[offset:])
+		if err != nil {
+			return config, fmt.Errorf("invalid size %s", fsize)
+		}
+		p.value = value
+		config.size = p
+		config.ftype = typeFile // Implies file type.
+	}
+
+	if config.noMatches {
+		// Implies no limit on max overall results.
+		config.maxResults = 0
+		// And there is no reason to look futher at the repo level
+		// if we have at least one entry match.
+		config.maxRepoResults = 1
+		// Or a at least one grep match.
+		config.maxGrepResults = 1
 	}
 
 	return config, nil
@@ -251,9 +327,22 @@ func (f *finder) find(ctx context.Context) error {
 
 	var (
 		branch, entryPath, basename string
-		level                       int
+		level, matched, repoMatched int
+		repo, prevRepo              *github.Repository
 	)
-	for _, repo := range repos {
+nextRepo:
+	for _, repo = range repos {
+		if prevRepo != nil && f.config.noMatches && repoMatched == 0 {
+			fmt.Fprintln(f.stdout, prevRepo.GetFullName())
+		}
+		prevRepo = repo
+		repoMatched = 0 // Reset per repository counter.
+
+		// Check the number of overall matched entries.
+		if f.config.maxResults > 0 && matched >= f.config.maxResults {
+			return nil
+		}
+
 		branch = f.config.branch
 		if branch == "" {
 			branch = repo.GetDefaultBranch()
@@ -270,6 +359,15 @@ func (f *finder) find(ctx context.Context) error {
 
 	nextEntry:
 		for _, entry := range tree.Entries {
+			// Check the number of overall matched entries.
+			if f.config.maxResults > 0 && matched >= f.config.maxResults {
+				return nil
+			}
+			// Check the number of per repository matched entries.
+			if f.config.maxRepoResults > 0 && repoMatched >= f.config.maxRepoResults {
+				continue nextRepo
+			}
+
 			entryPath = entry.GetPath()
 			level = levels(entryPath)
 			if f.config.minDepth > 0 && level < f.config.minDepth {
@@ -288,6 +386,11 @@ func (f *finder) find(ctx context.Context) error {
 				if entry.GetType() != "tree" {
 					continue
 				}
+			}
+
+			// Check size.
+			if f.config.size != nil && !f.config.size.match(int64(entry.GetSize())) {
+				continue nextEntry
 			}
 
 			// Check for path rejects first.
@@ -310,24 +413,39 @@ func (f *finder) find(ctx context.Context) error {
 			}
 
 			if f.config.grepRegexp != nil && entry.GetType() == "blob" {
-				results, err := f.grepContents(ctx, repo, branch, entry)
+				results, err := f.grepContents(ctx, repo, branch, entry, f.config.maxGrepResults)
 				if err != nil {
 					return err
 				}
-				for _, match := range results.matches {
-					fmt.Fprintln(f.stdout, repo.GetFullName(), entry.GetPath(), match.lineno, match.line)
+
+				if len(results.matches) > 0 {
+					matched++
+					repoMatched++
+				}
+
+				if !f.config.noMatches {
+					for _, match := range results.matches {
+						fmt.Fprintln(f.stdout, repo.GetFullName(), entry.GetPath(), match.lineno, match.line)
+					}
 				}
 				continue nextEntry
 			}
 
-			fmt.Fprintln(f.stdout, repo.GetFullName(), entry.GetPath())
+			matched++
+			repoMatched++
+			if !f.config.noMatches {
+				fmt.Fprintln(f.stdout, repo.GetFullName(), entry.GetPath())
+			}
 		}
+	}
+	if prevRepo != nil && f.config.noMatches && repoMatched == 0 {
+		fmt.Fprintln(f.stdout, prevRepo.GetFullName())
 	}
 
 	return nil
 }
 
-func (f *finder) grepContents(ctx context.Context, repo *github.Repository, branch string, entry *github.TreeEntry) (*grepResults, error) {
+func (f *finder) grepContents(ctx context.Context, repo *github.Repository, branch string, entry *github.TreeEntry, limit int) (*grepResults, error) {
 	if f.config.grepRegexp == nil {
 		return nil, nil // There is nothing to do.
 	}
@@ -339,7 +457,7 @@ func (f *finder) grepContents(ctx context.Context, repo *github.Repository, bran
 	}
 	defer contents.Close()
 
-	return grep(contents, f.config.grepRegexp)
+	return grep(contents, f.config.grepRegexp, limit)
 }
 
 func levels(path string) int {

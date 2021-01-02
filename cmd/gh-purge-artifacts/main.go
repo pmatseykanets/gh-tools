@@ -12,6 +12,7 @@ import (
 	"github.com/google/go-github/v32/github"
 	"github.com/pmatseykanets/gh-tools/auth"
 	gh "github.com/pmatseykanets/gh-tools/github"
+	"github.com/pmatseykanets/gh-tools/size"
 	"github.com/pmatseykanets/gh-tools/terminal"
 	"github.com/pmatseykanets/gh-tools/version"
 	"golang.org/x/oauth2"
@@ -171,7 +172,7 @@ func (p *purger) purge(ctx context.Context) error {
 		} else {
 			fmt.Fprintf(p.stdout, " purged")
 		}
-		fmt.Fprintf(p.stdout, " %d artifacts (%s) in %d repos\n", totalDeleted, formatSize(totalSize), totalRepos)
+		fmt.Fprintf(p.stdout, " %d artifacts (%s) in %d repos\n", totalDeleted, size.FormatBytes(totalSize), totalRepos)
 	}
 
 	return nil
@@ -199,7 +200,7 @@ func (p *purger) purgeRepoArtifacts(ctx context.Context, repo *github.Repository
 
 	fmt.Fprintf(p.stdout, "%s/%s", owner, name)
 
-	var deleted, size int64
+	var deleted, deletedSize int64
 	defer func() {
 		if deleted > 0 {
 			if p.config.dryRun {
@@ -207,7 +208,7 @@ func (p *purger) purgeRepoArtifacts(ctx context.Context, repo *github.Repository
 			} else {
 				fmt.Fprintf(p.stdout, " purged")
 			}
-			fmt.Fprintf(p.stdout, " %d out of %d artifacts (%s)", len(artifacts), deleted, formatSize(size))
+			fmt.Fprintf(p.stdout, " %d out of %d artifacts (%s)", len(artifacts), deleted, size.FormatBytes(deletedSize))
 		}
 		fmt.Fprintln(p.stdout)
 	}()
@@ -220,21 +221,8 @@ func (p *purger) purgeRepoArtifacts(ctx context.Context, repo *github.Repository
 		}
 
 		deleted++
-		size += artifact.GetSizeInBytes()
+		deletedSize += artifact.GetSizeInBytes()
 	}
 
-	return deleted, size, nil
-}
-
-func formatSize(n int64) string {
-	const unit = 1000
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	div, exp := int64(unit), 0
-	for n := n / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "kMGTPE"[exp])
+	return deleted, deletedSize, nil
 }
