@@ -14,6 +14,7 @@ import (
 	"github.com/google/go-github/v32/github"
 	"github.com/pmatseykanets/gh-tools/auth"
 	gh "github.com/pmatseykanets/gh-tools/github"
+	"github.com/pmatseykanets/gh-tools/size"
 	"github.com/pmatseykanets/gh-tools/terminal"
 	"github.com/pmatseykanets/gh-tools/version"
 	"golang.org/x/oauth2"
@@ -27,19 +28,22 @@ Usage: gh-find [flags] [owner][/repo]
   repo          Repository name
 
 Flags:
-  -help         Print this information and exit
-  -branch       The branch name if different from the default
-  -grep         The pattern to match the file contents
-  -maxdepth     Descend at most n directory levels
-  -mindepth     Descend at least n directory levels
-  -name         The pattern to match the last component of the pathname
-  -no-name      The pattern to reject the last component of the pathname
-  -path         The pattern to match the pathname
-  -no-path      The pattern to reject the pathname
-  -repo         The pattern to match repository names
-  -token        Prompt for an Access Token
-  -type         The entry type f - file, d - directory
-  -version      Print the version and exit
+  -help, h          Print this information and exit
+  -branc            The branch name if different from the default
+  -grep             The pattern to match the file contents
+  -max-depth        Descend at most n directory levels
+  -max-repo-results Limit the number of matched entries per repository
+  -max-results      Limit the number of matched entries
+  -min-depth        Descend at least n directory levels
+  -name             The pattern to match the last component of the pathname
+  -no-name          The pattern to reject the last component of the pathname
+  -path             The pattern to match the pathname
+  -no-path          The pattern to reject the pathname
+  -repo             The pattern to match repository names
+  -size             Limit results based on the file size [+-]<d><u>
+  -token            Prompt for an Access Token
+  -type             The entry type f - file, d - directory
+  -version          Print the version and exit
 `
 	fmt.Printf("gh-find version %s\n", version.Version)
 	fmt.Println(usage)
@@ -57,6 +61,22 @@ const (
 	typeDir  = "d"
 )
 
+type sizePredicate struct {
+	op    int   // <0 - less than, 0 - equals, >0 greater than
+	value int64 // Size in bytes
+}
+
+func (p *sizePredicate) match(value int64) bool {
+	switch p.op {
+	case 0:
+		return value == p.value
+	case 1:
+		return value >= p.value
+	default:
+		return value <= p.value
+	}
+}
+
 type config struct {
 	owner          string
 	repo           string
@@ -73,6 +93,7 @@ type config struct {
 	noPathRegexp   []*regexp.Regexp // The pattern to reject the pathname.
 	grepRegexp     *regexp.Regexp   // The pattern to match the contents of matching files.
 	token          bool             // Propmt for an access token.
+	size           *sizePredicate
 }
 
 type finder struct {
@@ -106,22 +127,23 @@ func readConfig() (config, error) {
 
 	var (
 		showVersion, showHelp      bool
-		grep, repo                 string
+		grep, repo, fsize          string
 		name, path, noName, noPath stringList
 		err                        error
 	)
 	flag.StringVar(&config.branch, "branch", "", "The branch name if different from the default")
 	flag.BoolVar(&showHelp, "help", showHelp, "Print this information and exit")
 	flag.StringVar(&grep, "grep", "", "The pattern to match the file contents")
-	flag.IntVar(&config.maxDepth, "maxdepth", 0, "Descend at most n directory levels")
-	flag.IntVar(&config.minDepth, "mindepth", 0, "Descend at least n directory levels")
-	flag.IntVar(&config.maxResults, "maxresults", 0, "Limit the number of matched entries")
-	flag.IntVar(&config.maxRepoResults, "maxreporesults", 0, "Limit the number of matched entries per repository")
+	flag.IntVar(&config.maxDepth, "max-depth", 0, "Descend at most n directory levels")
+	flag.IntVar(&config.minDepth, "min-depth", 0, "Descend at least n directory levels")
+	flag.IntVar(&config.maxResults, "max-results", 0, "Limit the number of matched entries")
+	flag.IntVar(&config.maxRepoResults, "max-repo-results", 0, "Limit the number of matched entries per repository")
 	flag.Var(&name, "name", "The pattern to match the last component of the pathname")
 	flag.Var(&noName, "no-name", "The pattern to reject the last component of the pathname")
 	flag.Var(&path, "path", "The pattern to match the pathname")
 	flag.Var(&noPath, "no-path", "The pattern to reject the pathname")
 	flag.StringVar(&repo, "repo", "", "The pattern to match repository names")
+	flag.StringVar(&fsize, "size", "", "Limit results based on the file size [+-]<d><u>")
 	flag.BoolVar(&config.token, "token", config.token, "Prompt for Access Token")
 	flag.StringVar(&config.ftype, "type", "", "File type f - file, d - directory")
 	flag.BoolVar(&showVersion, "version", showVersion, "Print version and exit")
@@ -196,7 +218,7 @@ func readConfig() (config, error) {
 		if config.grepRegexp, err = regexp.Compile(grep); err != nil {
 			return config, fmt.Errorf("invalid grep pattern: %s", err)
 		}
-		config.ftype = typeFile // Implies type file.
+		config.ftype = typeFile // Implies file type.
 	}
 
 	if config.maxDepth < 0 {
@@ -213,6 +235,27 @@ func readConfig() (config, error) {
 	}
 	if config.maxRepoResults < 0 {
 		return config, fmt.Errorf("maxreporesults should be positive")
+	}
+
+	if fsize != "" {
+		p := &sizePredicate{}
+		switch fsize[0] {
+		case '+':
+			p.op = 1
+		case '-':
+			p.op = -1
+		}
+		offset := 0
+		if p.op != 0 {
+			offset = 1
+		}
+		value, err := size.Parse(fsize[offset:])
+		if err != nil {
+			return config, fmt.Errorf("invalid size %s", fsize)
+		}
+		p.value = value
+		config.size = p
+		config.ftype = typeFile // Implies file type.
 	}
 
 	return config, nil
@@ -317,6 +360,11 @@ nextRepo:
 				}
 			}
 
+			// Check size.
+			if f.config.size != nil && !f.config.size.match(int64(entry.GetSize())) {
+				continue nextEntry
+			}
+
 			// Check for path rejects first.
 			if len(f.config.noPathRegexp) > 0 && matchAny(entryPath, f.config.noPathRegexp) {
 				continue nextEntry
@@ -353,7 +401,7 @@ nextRepo:
 
 			matched++
 			repoMatched++
-			fmt.Fprintln(f.stdout, repo.GetFullName(), entry.GetPath())
+			fmt.Fprintln(f.stdout, repo.GetFullName(), entry.GetPath(), entry.GetSize())
 		}
 	}
 
