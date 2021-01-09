@@ -33,6 +33,7 @@ Flags:
   -branch=           The branch name if different from the default
   -grep=             The pattern to match the file contents. Implies
                       -type f
+  -list-details      List details (file type, author, size, last commit date)
   -max-depth         Descend at most n directory levels
   -max-grep-results= Limit the number of grep results
   -max-repo-results= Limit the number of matched entries per repository
@@ -155,7 +156,7 @@ func readConfig() (config, error) {
 	flag.StringVar(&config.branch, "branch", "", "The branch name if different from the default")
 	flag.BoolVar(&showHelp, "help", false, "Print this information and exit")
 	flag.StringVar(&grep, "grep", "", "The pattern to match the file contents")
-	flag.BoolVar(&config.listDetails, "list-details", config.listDetails, "List details")
+	flag.BoolVar(&config.listDetails, "list-details", config.listDetails, "List details (file type, author, size, last commit date)")
 	flag.IntVar(&config.maxDepth, "max-depth", 0, "Descend at most n directory levels")
 	flag.IntVar(&config.maxGrepResults, "max-grep-results", 0, "Limit the number of grep results.")
 	flag.IntVar(&config.maxResults, "max-results", 0, "Limit the number of matched entries")
