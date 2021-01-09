@@ -28,7 +28,7 @@ Usage: gh-purge-artifacts [flags] [owner][/repo]
 Flags:
   -help         Print this information and exit
   -dry-run      Dry run
-  -repo         The pattern to match repository names
+  -repo=        The pattern to match repository names
   -token        Prompt for an Access Token
   -version      Print the version and exit
 `
@@ -144,13 +144,11 @@ func run(ctx context.Context) error {
 }
 
 func (p *purger) purge(ctx context.Context) error {
-	repoFinder := gh.RepoFinder{
-		Client:     p.gh,
+	repos, err := gh.NewRepoFinder(p.gh).Find(ctx, gh.RepoFilter{
 		Owner:      p.config.owner,
 		Repo:       p.config.repo,
 		RepoRegexp: p.config.repoRegexp,
-	}
-	repos, err := repoFinder.Find(ctx)
+	})
 	if err != nil {
 		return err
 	}

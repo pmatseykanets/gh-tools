@@ -145,12 +145,10 @@ func run(ctx context.Context) error {
 }
 
 func (f *finder) find(ctx context.Context) error {
-	repoFinder := gh.RepoFinder{
-		Client:     f.gh,
+	repos, err := gh.NewRepoFinder(f.gh).Find(ctx, gh.RepoFilter{
 		Owner:      f.config.owner,
 		RepoRegexp: f.config.repoRegexp,
-	}
-	repos, err := repoFinder.Find(ctx)
+	})
 	if err != nil {
 		return err
 	}

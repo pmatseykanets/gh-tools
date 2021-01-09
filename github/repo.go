@@ -8,24 +8,43 @@ import (
 	"github.com/google/go-github/v32/github"
 )
 
+// RepoFinder finds GitHub repository given RepoFilter.
 type RepoFinder struct {
-	Client     *github.Client
-	Owner      string
-	Repo       string
-	RepoRegexp *regexp.Regexp
+	Client *github.Client
 }
 
-func (f *RepoFinder) Find(ctx context.Context) ([]*github.Repository, error) {
-	owner, _, err := f.Client.Users.Get(ctx, f.Owner)
+// NewRepoFinder creates a new RepoFinder instance.
+func NewRepoFinder(client *github.Client) *RepoFinder {
+	return &RepoFinder{Client: client}
+}
+
+// RepoFilter represents criteria used to filter repositories.
+type RepoFilter struct {
+	Owner      string         // The owner name. Can be a user or an organization.
+	Repo       string         // The repository name when in single-repo mode.
+	RepoRegexp *regexp.Regexp // The pattern to match repository names.
+	Archived   bool           // Include archived repositories.
+	NoPrivate  bool           // Don't inlucde private repositories.
+	NoPublic   bool           // Don't include public repositories.
+	NoFork     bool           // Don't include forks.
+}
+
+// Find repositories using a given filter.
+func (f *RepoFinder) Find(ctx context.Context, filter RepoFilter) ([]*github.Repository, error) {
+	if filter.NoPrivate && filter.NoPublic {
+		return nil, nil // Nothing to do.
+	}
+
+	owner, _, err := f.Client.Users.Get(ctx, filter.Owner)
 	if err != nil {
 		return nil, fmt.Errorf("can't read owner information: %s", err)
 	}
 
-	// A single repository.
-	if f.Repo != "" {
-		repo, err := f.singleRepo(ctx)
+	// A single repository. No other criteria apply.
+	if filter.Repo != "" {
+		repo, _, err := f.Client.Repositories.Get(ctx, filter.Owner, filter.Repo)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("can't read repository: %s", err)
 		}
 		return []*github.Repository{repo}, nil
 	}
@@ -33,9 +52,9 @@ func (f *RepoFinder) Find(ctx context.Context) ([]*github.Repository, error) {
 	var repos []*github.Repository
 	switch t := owner.GetType(); t {
 	case "User":
-		repos, err = f.userRepos(ctx)
+		repos, err = f.userRepos(ctx, filter)
 	case "Organization":
-		repos, err = f.orgRepos(ctx)
+		repos, err = f.orgRepos(ctx, filter)
 	default:
 		err = fmt.Errorf("unknown owner type %s", t)
 	}
@@ -43,40 +62,23 @@ func (f *RepoFinder) Find(ctx context.Context) ([]*github.Repository, error) {
 	return repos, err
 }
 
-func (f *RepoFinder) singleRepo(ctx context.Context) (*github.Repository, error) {
-	repo, _, err := f.Client.Repositories.Get(ctx, f.Owner, f.Repo)
-	if err != nil {
-		return nil, fmt.Errorf("can't read repository: %s", err)
-	}
-
-	return repo, nil
-}
-
-func (f *RepoFinder) userRepos(ctx context.Context) ([]*github.Repository, error) {
+func (f *RepoFinder) userRepos(ctx context.Context, filter RepoFilter) ([]*github.Repository, error) {
 	opt := &github.RepositoryListOptions{
 		ListOptions: github.ListOptions{PerPage: 30},
 		Affiliation: "owner",
 	}
 	var (
-		list, repos []*github.Repository
-		resp        *github.Response
-		err         error
+		filtered, repos []*github.Repository
+		resp            *github.Response
+		err             error
 	)
 	for {
-		repos, resp, err = f.Client.Repositories.List(ctx, f.Owner, opt)
+		repos, resp, err = f.Client.Repositories.List(ctx, filter.Owner, opt)
 		if err != nil {
 			return nil, fmt.Errorf("can't read repositories: %s", err)
 		}
 
-		if f.RepoRegexp == nil {
-			list = append(list, repos...)
-		} else {
-			for _, repo := range repos {
-				if f.RepoRegexp.MatchString(repo.GetName()) {
-					list = append(list, repo)
-				}
-			}
-		}
+		filtered = append(filtered, apply(repos, filter)...)
 
 		if resp.NextPage == 0 {
 			break
@@ -84,33 +86,25 @@ func (f *RepoFinder) userRepos(ctx context.Context) ([]*github.Repository, error
 		opt.Page = resp.NextPage
 	}
 
-	return list, nil
+	return filtered, nil
 }
 
-func (f *RepoFinder) orgRepos(ctx context.Context) ([]*github.Repository, error) {
+func (f *RepoFinder) orgRepos(ctx context.Context, filter RepoFilter) ([]*github.Repository, error) {
 	opt := &github.RepositoryListByOrgOptions{
 		ListOptions: github.ListOptions{PerPage: 30},
 	}
 	var (
-		list, repos []*github.Repository
-		resp        *github.Response
-		err         error
+		filtered, repos []*github.Repository
+		resp            *github.Response
+		err             error
 	)
 	for {
-		repos, resp, err = f.Client.Repositories.ListByOrg(ctx, f.Owner, opt)
+		repos, resp, err = f.Client.Repositories.ListByOrg(ctx, filter.Owner, opt)
 		if err != nil {
 			return nil, fmt.Errorf("can't read repositories: %s", err)
 		}
 
-		if f.RepoRegexp == nil {
-			list = append(list, repos...)
-		} else {
-			for _, repo := range repos {
-				if f.RepoRegexp.Match([]byte(repo.GetName())) {
-					list = append(list, repo)
-				}
-			}
-		}
+		filtered = append(filtered, apply(repos, filter)...)
 
 		if resp.NextPage == 0 {
 			break
@@ -118,5 +112,36 @@ func (f *RepoFinder) orgRepos(ctx context.Context) ([]*github.Repository, error)
 		opt.Page = resp.NextPage
 	}
 
-	return list, nil
+	return filtered, nil
+}
+
+func apply(repos []*github.Repository, filter RepoFilter) []*github.Repository {
+	filtered := make([]*github.Repository, len(repos))
+	for _, repo := range repos {
+		if repo.GetArchived() && !filter.Archived {
+			continue
+		}
+
+		if repo.GetPrivate() {
+			if filter.NoPrivate {
+				continue
+			}
+		} else {
+			if filter.NoPublic {
+				continue
+			}
+		}
+
+		if repo.GetFork() && filter.NoFork {
+			continue
+		}
+
+		if filter.RepoRegexp != nil && !filter.RepoRegexp.MatchString(repo.GetName()) {
+			continue
+		}
+
+		filtered = append(filtered, repo)
+	}
+
+	return filtered
 }

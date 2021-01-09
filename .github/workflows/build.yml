@@ -47,3 +47,10 @@ jobs:
 
     - name: Run staticcheck
       run: $(go env GOPATH)/bin/staticcheck ./...
+
+    - name: Build binaries
+      run: |
+        go build ./cmd/gh-find
+        go build ./cmd/gh-go-rdeps
+        go build ./cmd/gh-pr
+        go build ./cmd/gh-purge-artifacts
