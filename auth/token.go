@@ -45,15 +45,13 @@ func fromAuthFile() string {
 		return ""
 	}
 
-	auth := struct {
-		OauthToken string `yaml:"oauth_token"`
-	}{}
+	auth := map[string]string{}
 	err = yaml.NewDecoder(file).Decode(auth)
 	if err != nil {
 		return ""
 	}
 
-	return auth.OauthToken
+	return auth["oauth_token"]
 }
 
 func fromGhCliConfig() string {
