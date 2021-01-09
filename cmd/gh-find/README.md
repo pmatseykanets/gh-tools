@@ -5,7 +5,8 @@ Walk file hierarchies across GitHub repositories.
 ## Installation
 
 ```sh
-GO111MODULE=on go get github.com/pmatseykanets/gh-tools/cmd/gh-find
+cd
+GO111MODULE=on go get github.com/pmatseykanets/gh-tools/cmd/gh-find@latest
 ```
 
 ## Usage

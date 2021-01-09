@@ -5,7 +5,8 @@ Automate PR creation across GitHub repositories.
 ## Installation
 
 ```sh
-GO111MODULE=on go get github.com/pmatseykanets/gh-tools/cmd/gh-pr
+cd
+GO111MODULE=on go get github.com/pmatseykanets/gh-tools/cmd/gh-pr@latest
 ```
 
 ## Usage
