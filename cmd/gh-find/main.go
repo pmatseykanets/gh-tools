@@ -73,20 +73,6 @@ const (
 	typeDir  = "d"
 )
 
-// The file mode.
-const (
-	// 100644 for file (blob).
-	modeFile = "100644"
-	// 100755 for executable (blob).
-	modeExecutable = "100755"
-	// 040000 for subdirectory (tree).
-	modeSubdir = "040000"
-	// 160000 for submodule (commit).
-	modeSubmodule = "160000"
-	// 120000 for a blob that specifies the path of a symlink.
-	modeSymlink = "120000"
-)
-
 type sizePredicate struct {
 	op    int   // <0 - less than, 0 - equals, >0 greater than
 	value int64 // Size in bytes
