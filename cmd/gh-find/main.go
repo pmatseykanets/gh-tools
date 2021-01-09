@@ -28,28 +28,34 @@ Usage: gh-find [flags] [owner][/repo]
   repo          Repository name
 
 Flags:
-  -help, h          Print this information and exit
-  -branc            The branch name if different from the default
-  -grep             The pattern to match the file contents. Implies
+  -archived          Include archived repositories
+  -help, h           Print this information and exit
+  -branch=           The branch name if different from the default
+  -grep=             The pattern to match the file contents. Implies
                       -type f
-  -max-depth        Descend at most n directory levels
-  -max-grep-results Limit the number of grep results
-  -max-repo-results Limit the number of matched entries per repository
-  -max-results      Limit the number of matched entries
-  -min-depth        Descend at least n directory levels
-  -name             The pattern to match the last component of the pathname
-  -no-name          The pattern to reject the last component of the pathname
-  -no-matches       List repositories with no matches. Implies
-                      -max-results 0
-                      -max-grep-results 1
-                      -max-repo-results 1
-  -no-path          The pattern to reject the pathname
-  -path             The pattern to match the pathname
-  -repo             The pattern to match repository names
-  -size             Limit results based on the file size [+-]<d><u>
-  -token            Prompt for an Access Token
-  -type             The entry type f - file, d - directory
-  -version          Print the version and exit
+  -max-depth         Descend at most n directory levels
+  -max-grep-results= Limit the number of grep results
+  -max-repo-results= Limit the number of matched entries per repository
+  -max-results=      Limit the number of matched entries
+  -min-depth=        Descend at least n directory levels
+  -name=             The pattern to match the last component of the pathname
+  -no-fork           Don't include fork repositories
+  -no-grep=          The pattern to reject the file contents. Implies
+                       -type f
+  -no-matches        List repositories with no matches. Implies
+                       -max-results 0
+                       -max-grep-results 1
+                       -max-repo-results 1
+  -no-name=          The pattern to reject the last component of the pathname
+  -no-path=          The pattern to reject the pathname
+  -no-private        Don't include private repositories
+  -no-public         Don't include public repositories
+  -path=             The pattern to match the pathname
+  -repo=             The pattern to match repository names
+  -size=             Limit results based on the file size [+-]<d><u>
+  -token             Prompt for an Access Token
+  -type=             The entry type f - file, d - directory
+  -version           Print the version and exit
 `
 	fmt.Printf("gh-find version %s\n", version.Version)
 	fmt.Println(usage)
@@ -65,6 +71,20 @@ func main() {
 const (
 	typeFile = "f"
 	typeDir  = "d"
+)
+
+// The file mode.
+const (
+	// 100644 for file (blob).
+	modeFile = "100644"
+	// 100755 for executable (blob).
+	modeExecutable = "100755"
+	// 040000 for subdirectory (tree).
+	modeSubdir = "040000"
+	// 160000 for submodule (commit).
+	modeSubmodule = "160000"
+	// 120000 for a blob that specifies the path of a symlink.
+	modeSymlink = "120000"
 )
 
 type sizePredicate struct {
@@ -98,10 +118,16 @@ type config struct {
 	pathRegexp     []*regexp.Regexp // The pattern to match the pathname.
 	noPathRegexp   []*regexp.Regexp // The pattern to reject the pathname.
 	grepRegexp     *regexp.Regexp   // The pattern to match the contents of matching files.
+	noGrepRegexp   *regexp.Regexp   // The pattern to reject the file contents.
 	token          bool             // Propmt for an access token.
 	size           *sizePredicate   // Limit results based on the file size [+-]<d><u>.
 	noMatches      bool             // List repositories with no matches.
 	maxGrepResults int              // Limit the number of grep results.
+	listDetails    bool             // List details.
+	archived       bool             // Include archived repositories.
+	noPrivate      bool             // Don't include private repositories.
+	noPublic       bool             // Don't include public repositories.
+	noFork         bool             // Don't include fork repositories.
 }
 
 type finder struct {
@@ -135,22 +161,28 @@ func readConfig() (config, error) {
 
 	var (
 		showVersion, showHelp      bool
-		grep, repo, fsize          string
+		grep, noGrep, repo, fsize  string
 		name, path, noName, noPath stringList
 		err                        error
 	)
+	flag.BoolVar(&config.archived, "archived", config.archived, "Include archived repositories")
 	flag.StringVar(&config.branch, "branch", "", "The branch name if different from the default")
-	flag.BoolVar(&showHelp, "help", showHelp, "Print this information and exit")
+	flag.BoolVar(&showHelp, "help", false, "Print this information and exit")
 	flag.StringVar(&grep, "grep", "", "The pattern to match the file contents")
+	flag.BoolVar(&config.listDetails, "list-details", config.listDetails, "List details")
 	flag.IntVar(&config.maxDepth, "max-depth", 0, "Descend at most n directory levels")
 	flag.IntVar(&config.maxGrepResults, "max-grep-results", 0, "Limit the number of grep results.")
 	flag.IntVar(&config.maxResults, "max-results", 0, "Limit the number of matched entries")
 	flag.IntVar(&config.maxRepoResults, "max-repo-results", 0, "Limit the number of matched entries per repository")
 	flag.IntVar(&config.minDepth, "min-depth", 0, "Descend at least n directory levels")
 	flag.Var(&name, "name", "The pattern to match the last component of the pathname")
+	flag.BoolVar(&config.noFork, "no-fork", config.noFork, "Don't include fork repositories")
+	flag.StringVar(&noGrep, "no-grep", "", "The pattern to reject the file contents")
 	flag.BoolVar(&config.noMatches, "no-matches", config.noMatches, "List repositories with no matches")
 	flag.Var(&noName, "no-name", "The pattern to reject the last component of the pathname")
 	flag.Var(&noPath, "no-path", "The pattern to reject the pathname")
+	flag.BoolVar(&config.noPrivate, "no-private", config.noPrivate, "Don't include private repositories")
+	flag.BoolVar(&config.noPublic, "no-public", config.noPublic, "Don't include public repositories")
 	flag.Var(&path, "path", "The pattern to match the pathname")
 	flag.StringVar(&repo, "repo", "", "The pattern to match repository names")
 	flag.StringVar(&fsize, "size", "", "Limit results based on the file size [+-]<d><u>")
@@ -184,6 +216,10 @@ func readConfig() (config, error) {
 
 	if config.owner == "" {
 		return config, fmt.Errorf("owner is required")
+	}
+
+	if config.noPrivate && config.noPublic {
+		return config, fmt.Errorf("no-private and no-public are mutually exclusive")
 	}
 
 	config.nameRegexp = make([]*regexp.Regexp, len(name))
@@ -227,6 +263,12 @@ func readConfig() (config, error) {
 	if grep != "" {
 		if config.grepRegexp, err = regexp.Compile(grep); err != nil {
 			return config, fmt.Errorf("invalid grep pattern: %s", err)
+		}
+		config.ftype = typeFile // Implies file type.
+	}
+	if noGrep != "" {
+		if config.noGrepRegexp, err = regexp.Compile(noGrep); err != nil {
+			return config, fmt.Errorf("invalid no-grep pattern: %s", err)
 		}
 		config.ftype = typeFile // Implies file type.
 	}
@@ -314,13 +356,15 @@ func run(ctx context.Context) error {
 }
 
 func (f *finder) find(ctx context.Context) error {
-	repoFinder := gh.RepoFinder{
-		Client:     f.gh,
+	repos, err := gh.NewRepoFinder(f.gh).Find(ctx, gh.RepoFilter{
 		Owner:      f.config.owner,
 		Repo:       f.config.repo,
 		RepoRegexp: f.config.repoRegexp,
-	}
-	repos, err := repoFinder.Find(ctx)
+		Archived:   f.config.archived,
+		NoPrivate:  f.config.noPrivate,
+		NoPublic:   f.config.noPublic,
+		NoFork:     f.config.noFork,
+	})
 	if err != nil {
 		return err
 	}
@@ -348,13 +392,17 @@ nextRepo:
 			branch = repo.GetDefaultBranch()
 		}
 
-		tree, resp, err := f.gh.Git.GetTree(ctx, f.config.owner, *repo.Name, branch, true)
+		tree, resp, err := f.gh.Git.GetTree(ctx, f.config.owner, repo.GetName(), branch, true)
 		if err != nil {
 			if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusConflict {
 				// http.StatusConflict - Git Repository is empty.
 				continue
 			}
 			return err
+		}
+
+		if tree.GetTruncated() {
+			fmt.Fprintf(f.stderr, "WARNING: results were truncated for %s", repo.GetFullName())
 		}
 
 	nextEntry:
@@ -411,6 +459,16 @@ nextRepo:
 			if len(f.config.nameRegexp) > 0 && !matchAny(basename, f.config.nameRegexp) {
 				continue nextEntry
 			}
+			// Check if we need to reject based on the contents of the file.
+			if f.config.noGrepRegexp != nil && entry.GetType() == "blob" {
+				results, err := f.grepContents(ctx, repo, branch, entry, 1)
+				if err != nil {
+					return err
+				}
+				if len(results.matches) > 0 {
+					continue nextEntry
+				}
+			}
 
 			if f.config.grepRegexp != nil && entry.GetType() == "blob" {
 				results, err := f.grepContents(ctx, repo, branch, entry, f.config.maxGrepResults)
@@ -434,7 +492,20 @@ nextRepo:
 			matched++
 			repoMatched++
 			if !f.config.noMatches {
-				fmt.Fprintln(f.stdout, repo.GetFullName(), entry.GetPath())
+				if !f.config.listDetails {
+					fmt.Fprintln(f.stdout, repo.GetFullName(), entry.GetPath())
+					continue nextEntry
+				}
+
+				commit, err := f.getLastCommit(ctx, repo, branch, entry)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintln(f.stdout, repo.GetFullName(), entryType(entry),
+					commit.Author.GetLogin(), entry.GetSize(),
+					commit.Commit.Author.GetDate().Format("Jan 2 15:04:05 2006"),
+					entry.GetPath(),
+				)
 			}
 		}
 	}
@@ -443,6 +514,43 @@ nextRepo:
 	}
 
 	return nil
+}
+
+func entryType(e *github.TreeEntry) string {
+	if e == nil {
+		return ""
+	}
+
+	switch e.GetType() {
+	case "tree":
+		return "d"
+	case "blob":
+		return "f"
+	default:
+		return ""
+	}
+}
+
+func (f *finder) getLastCommit(ctx context.Context, repo *github.Repository, branch string, entry *github.TreeEntry) (*github.RepositoryCommit, error) {
+	opts := &github.CommitsListOptions{
+		SHA:  branch,
+		Path: entry.GetPath(),
+		ListOptions: github.ListOptions{
+			Page:    1,
+			PerPage: 1,
+		},
+	}
+	commits, resp, err := f.gh.Repositories.ListCommits(ctx, f.config.owner, repo.GetName(), opts)
+	if err != nil {
+		return nil, err
+	}
+	_ = resp
+
+	if len(commits) == 0 {
+		return nil, nil
+	}
+
+	return commits[0], nil
 }
 
 func (f *finder) grepContents(ctx context.Context, repo *github.Repository, branch string, entry *github.TreeEntry, limit int) (*grepResults, error) {
