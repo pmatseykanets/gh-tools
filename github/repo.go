@@ -116,7 +116,10 @@ func (f *RepoFinder) orgRepos(ctx context.Context, filter RepoFilter) ([]*github
 }
 
 func apply(repos []*github.Repository, filter RepoFilter) []*github.Repository {
-	filtered := make([]*github.Repository, len(repos))
+	var (
+		filtered = make([]*github.Repository, len(repos))
+		n        int
+	)
 	for _, repo := range repos {
 		if repo.GetArchived() && !filter.Archived {
 			continue
@@ -140,8 +143,13 @@ func apply(repos []*github.Repository, filter RepoFilter) []*github.Repository {
 			continue
 		}
 
-		filtered = append(filtered, repo)
+		filtered[n] = repo
+		n++
 	}
 
-	return filtered
+	if n == 0 {
+		return nil
+	}
+
+	return filtered[:n]
 }
