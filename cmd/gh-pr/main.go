@@ -24,7 +24,7 @@ import (
 )
 
 func usage() {
-	usage := `Automate PR creation across multiple GitHub repositories
+	usage := `Automate PR creation across GitHub repositories
 
 Usage: gh-pr [flags] [owner][/repo]
   owner         Repository owner (user or organization)
@@ -320,12 +320,15 @@ func (p *prmaker) create(ctx context.Context) error {
 			}
 		}
 
+		fmt.Fprint(p.stderr, repo.GetFullName())
+
 		err = p.apply(ctx, repo, scriptFile.Name())
 		if err != nil {
 			if err == errNoChanges {
-				fmt.Fprintln(p.stdout, repo.GetFullName(), "no changes")
+				fmt.Fprintln(p.stdout, " no changes")
 				continue
 			}
+			fmt.Fprintln(p.stdout)
 			return err
 		}
 
@@ -336,6 +339,7 @@ func (p *prmaker) create(ctx context.Context) error {
 			Body:  &p.config.desc,
 		})
 		if err != nil {
+			fmt.Fprintln(p.stdout)
 			return fmt.Errorf("%s: error creating a PR: %s", repo.GetFullName(), err)
 		}
 
@@ -345,6 +349,7 @@ func (p *prmaker) create(ctx context.Context) error {
 				Reviewers: p.config.reviewers,
 			})
 			if err != nil {
+				fmt.Fprintln(p.stdout)
 				fmt.Fprintf(p.stderr, "%s: error requesting a PR review: %s\n", repo.GetFullName(), err)
 			}
 		}
@@ -352,11 +357,12 @@ func (p *prmaker) create(ctx context.Context) error {
 		if len(p.config.assignees) > 0 {
 			_, _, err = p.gh.Issues.AddAssignees(ctx, p.config.owner, repo.GetName(), prNo, p.config.assignees)
 			if err != nil {
+				fmt.Fprintln(p.stdout)
 				fmt.Fprintf(p.stderr, "%s: error assigning the PR: %s\n", repo.GetFullName(), err)
 			}
 		}
 
-		fmt.Println(repo.GetFullName(), pr.GetHTMLURL())
+		fmt.Println("", pr.GetHTMLURL())
 	}
 
 	return nil
