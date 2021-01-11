@@ -62,9 +62,11 @@ func (f *RepoFinder) Find(ctx context.Context, filter RepoFilter) ([]*github.Rep
 	return repos, err
 }
 
+var listOptions = github.ListOptions{PerPage: 100}
+
 func (f *RepoFinder) userRepos(ctx context.Context, filter RepoFilter) ([]*github.Repository, error) {
-	opt := &github.RepositoryListOptions{
-		ListOptions: github.ListOptions{PerPage: 30},
+	opts := &github.RepositoryListOptions{
+		ListOptions: listOptions,
 		Affiliation: "owner",
 	}
 	var (
@@ -73,7 +75,7 @@ func (f *RepoFinder) userRepos(ctx context.Context, filter RepoFilter) ([]*githu
 		err             error
 	)
 	for {
-		repos, resp, err = f.Client.Repositories.List(ctx, filter.Owner, opt)
+		repos, resp, err = f.Client.Repositories.List(ctx, filter.Owner, opts)
 		if err != nil {
 			return nil, fmt.Errorf("can't read repositories: %s", err)
 		}
@@ -83,23 +85,21 @@ func (f *RepoFinder) userRepos(ctx context.Context, filter RepoFilter) ([]*githu
 		if resp.NextPage == 0 {
 			break
 		}
-		opt.Page = resp.NextPage
+		opts.Page = resp.NextPage
 	}
 
 	return filtered, nil
 }
 
 func (f *RepoFinder) orgRepos(ctx context.Context, filter RepoFilter) ([]*github.Repository, error) {
-	opt := &github.RepositoryListByOrgOptions{
-		ListOptions: github.ListOptions{PerPage: 30},
-	}
+	opts := &github.RepositoryListByOrgOptions{ListOptions: listOptions}
 	var (
 		filtered, repos []*github.Repository
 		resp            *github.Response
 		err             error
 	)
 	for {
-		repos, resp, err = f.Client.Repositories.ListByOrg(ctx, filter.Owner, opt)
+		repos, resp, err = f.Client.Repositories.ListByOrg(ctx, filter.Owner, opts)
 		if err != nil {
 			return nil, fmt.Errorf("can't read repositories: %s", err)
 		}
@@ -109,7 +109,7 @@ func (f *RepoFinder) orgRepos(ctx context.Context, filter RepoFilter) ([]*github
 		if resp.NextPage == 0 {
 			break
 		}
-		opt.Page = resp.NextPage
+		opts.Page = resp.NextPage
 	}
 
 	return filtered, nil

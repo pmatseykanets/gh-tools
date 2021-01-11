@@ -312,7 +312,12 @@ func (p *prmaker) create(ctx context.Context) error {
 		_, resp, err := p.gh.Repositories.GetBranch(ctx, p.config.owner, repo.GetName(), p.config.branch)
 		switch err {
 		case nil:
-			fmt.Fprintln(p.stderr, repo.GetFullName(), "The remote branch already exists")
+			pullURL := ""
+			pull, err := p.getPullForBranch(ctx, repo, p.config.branch)
+			if err == nil {
+				pullURL = pull.GetHTMLURL()
+			}
+			fmt.Fprintln(p.stderr, repo.GetFullName(), "The remote branch already exists", pullURL)
 			continue
 		default:
 			if resp != nil && resp.StatusCode != http.StatusNotFound {
@@ -368,7 +373,35 @@ func (p *prmaker) create(ctx context.Context) error {
 	return nil
 }
 
-var errNoChanges = fmt.Errorf("no changes")
+func (p *prmaker) getPullForBranch(ctx context.Context, repo *github.Repository, branch string) (*github.PullRequest, error) {
+	var (
+		pulls []*github.PullRequest
+		resp  *github.Response
+		err   error
+		opts  = &github.PullRequestListOptions{ListOptions: github.ListOptions{PerPage: 100}}
+	)
+	for {
+		pulls, resp, err = p.gh.PullRequests.List(ctx, p.config.owner, repo.GetName(), opts)
+		if err != nil {
+			return nil, fmt.Errorf("%s: can't read pull requests: %s", repo.GetName(), err)
+		}
+
+		for _, pull := range pulls {
+			if pull.GetHead().GetRef() == branch {
+				return pull, nil
+			}
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	return nil, nil
+}
+
+var errNoChanges = fmt.Errorf("no changes were made")
 
 func (p *prmaker) apply(ctx context.Context, repo *github.Repository, scriptPath string) error {
 	dir, err := ioutil.TempDir("", "gh-pr")
