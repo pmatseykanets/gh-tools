@@ -27,6 +27,7 @@ Flags:
   -repo=            The pattern to match repository names
   -review=          The GitHub user login to request the PR review from
   -script=          The script to apply changes
+  -sscript-file=    Read the script from a file
   -shell=           The shell to use to run the script. Default bash
   -title=           The PR title
   -token            Prompt for an Access Token
