@@ -9,9 +9,9 @@ GitHub Tools
 
 ## Authentication
 
-All tools require a GitHub access token in order to authenticate API requests and use following methods, in the order of precedence, to infer/set the token:
+All tools require a GitHub personal access token in order to authenticate API requests and use following methods, in the order of precedence, to infer/set the token:
 
-- If `-token` flag is used a user will be asked to enter the token interactively
+- `-token` flag, in which case the user will be asked to enter the token interactively
 - `GHTOOLS_TOKEN` environment variable
 - `GITHUB_TOKEN` environment variable
 - `~/.config/gh-tools/auth.yml` file, containing the token
@@ -20,4 +20,12 @@ All tools require a GitHub access token in order to authenticate API requests an
     oauth_token: <token>
     ```
 
-- `gh cli`'s configuration file
+- GitHub's official CLI tool [`gh`](https://github.com/cli/cli) configuration file, to avoid creating separate personal accesss tokens
+
+Here's how you can [create a personal access token](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token).
+
+You may need the following scopes to use `gh-tools`:
+
+- `repo`
+- `workflow` - if you want to be able make changes to GitHub Actions workflow files with `gh-pr`
+- `read:user`
