@@ -26,8 +26,10 @@ All tools require a GitHub personal access token in order to authenticate API re
 
 Here's how you can [create a personal access token](https://docs.github.com/en/github/authenticating-to-github/creating-a-personal-access-token).
 
-You may need the following scopes to use `gh-tools`:
+Your personal access token may need the following scopes to use `gh-tools`:
 
 - `repo`
-- `workflow` - if you want to be able make changes to GitHub Actions workflow files with `gh-pr`
+- `workflow`
 - `read:user`
+
+The explicit `worklow` scope is requred if you want to be able to make changes to GitHub Actions workflow files with `gh-pr` tool.
