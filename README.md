@@ -1,6 +1,8 @@
 # gh-tools
 
-GitHub Tools
+![gh-find image](https://user-images.githubusercontent.com/779965/105617575-09331480-5dad-11eb-82cb-bde13473aa4f.png)
+
+GitHub productivity tools
 
 - [gh-purge-artifacts](cmd/gh-purge-artifacts) Purge GitHub Actions artifacts across GitHub repositories
 - [gh-go-rdeps](cmd/gh-go-rdeps) Find reverse Go dependencies across GitHub repositories
