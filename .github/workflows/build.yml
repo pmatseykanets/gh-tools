@@ -11,7 +11,7 @@ jobs:
     name: "Build ${{ matrix.go }}"
     strategy:
       matrix:
-        go: ["1.15", "1.16"]
+        go: ["1.15", "1.16", "1.17"]
     runs-on: ubuntu-latest
     env:
       GO111MODULE: on
@@ -40,7 +40,7 @@ jobs:
       run: go test -vet=off -race -coverprofile=coverage.txt -covermode=atomic ./...
 
     - name: Upload code coverage
-      if: matrix.go == '1.15'
+      if: matrix.go == '1.16'
       timeout-minutes: 1
       continue-on-error: true
       run: bash <(curl -s https://codecov.io/bash)
