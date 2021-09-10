@@ -21,16 +21,16 @@ func PasswordPrompt(prompt ...string) (string, error) {
 
 	// Restore the state in the event of an interrupt.
 	// See: https://groups.google.com/forum/#!topic/golang-nuts/kTVAbtee9UA
-	c := make(chan os.Signal)
-	q := make(chan struct{})
-	signal.Notify(c, os.Interrupt, os.Interrupt, syscall.SIGTERM)
+	sig := make(chan os.Signal, 1)
+	quit := make(chan struct{})
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		select {
-		case <-c:
+		case <-sig:
 			_ = terminal.Restore(syscall.Stdin, state)
 			fmt.Println()
 			os.Exit(1)
-		case <-q:
+		case <-quit:
 			return
 		}
 	}()
@@ -47,9 +47,8 @@ func PasswordPrompt(prompt ...string) (string, error) {
 		return "", err
 	}
 
-	// Stop looking for ^C on the channel.
-	signal.Stop(c)
-	close(q)
+	signal.Stop(sig)
+	close(quit)
 
 	// Return the password as a string.
 	return string(password), nil
