@@ -144,7 +144,7 @@ func apply(repos []*github.Repository, filter RepoFilter) []*github.Repository {
 			continue
 		}
 
-		if filter.NoRepoRegexp != nil && filter.RepoRegexp.MatchString(repo.GetName()) {
+		if filter.NoRepoRegexp != nil && filter.NoRepoRegexp.MatchString(repo.GetName()) {
 			continue
 		}
 
