@@ -30,7 +30,8 @@ Usage: gh-go-rdeps [flags] <owner> <path>
 
 Flags:
   -help         Print this information and exit
-  -repo         The pattern to match repository names
+  -no-repo=     The pattern to reject repository names
+  -repo=        The pattern to match repository names
   -token        Prompt for an Access Token
   -version      Print the version and exit
 `
@@ -45,10 +46,11 @@ func main() {
 }
 
 type config struct {
-	owner      string
-	modpath    string
-	repoRegexp *regexp.Regexp
-	token      bool // Propmt for an access token.
+	owner        string
+	modpath      string
+	repoRegexp   *regexp.Regexp
+	token        bool           // Propmt for an access token.
+	noRepoRegexp *regexp.Regexp // The pattern to reject repository names.
 }
 
 type finder struct {
@@ -68,11 +70,12 @@ func readConfig() (config, error) {
 
 	var (
 		showVersion, showHelp bool
-		repo                  string
+		repo, noRepo          string
 		err                   error
 	)
 
 	flag.BoolVar(&showHelp, "help", showHelp, "Print this information and exit")
+	flag.StringVar(&noRepo, "no-repo", "", "The pattern to reject repository names")
 	flag.StringVar(&repo, "repo", "", "The pattern to match repository names")
 	flag.BoolVar(&config.token, "token", config.token, "Prompt for Access Token")
 	flag.BoolVar(&showVersion, "version", showVersion, "Print version and exit")
@@ -112,6 +115,12 @@ func readConfig() (config, error) {
 		}
 	}
 
+	if noRepo != "" {
+		if config.noRepoRegexp, err = regexp.Compile(noRepo); err != nil {
+			return config, fmt.Errorf("invalid no-repo pattern: %s", err)
+		}
+	}
+
 	return config, nil
 }
 
@@ -146,8 +155,9 @@ func run(ctx context.Context) error {
 
 func (f *finder) find(ctx context.Context) error {
 	repos, err := gh.NewRepoFinder(f.gh).Find(ctx, gh.RepoFilter{
-		Owner:      f.config.owner,
-		RepoRegexp: f.config.repoRegexp,
+		Owner:        f.config.owner,
+		RepoRegexp:   f.config.repoRegexp,
+		NoRepoRegexp: f.config.noRepoRegexp,
 	})
 	if err != nil {
 		return err

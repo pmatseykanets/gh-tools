@@ -41,6 +41,7 @@ Flags:
   -no-private        Don't include private repositories
   -no-public         Don't include public repositories
   -path=             The pattern to match the pathname
+  -no-repo=          The pattern to reject repository names
   -repo=             The pattern to match repository names
   -size=             Limit results based on the file size [+-]<d><u>
   -token             Prompt for an Access Token
