@@ -24,6 +24,7 @@ Flags:
   -no-fork          Don't include fork repositories
   -no-private       Don't include private repositories
   -no-public        Don't include public repositories
+  -no-repo=         The pattern to reject repository names
   -repo=            The pattern to match repository names
   -review=          The GitHub user login to request the PR review from
   -script=          The script to apply changes

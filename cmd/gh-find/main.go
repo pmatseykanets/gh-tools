@@ -51,6 +51,7 @@ Flags:
   -no-path=          The pattern to reject the pathname
   -no-private        Don't include private repositories
   -no-public         Don't include public repositories
+  -no-repo=          The pattern to reject repository names
   -path=             The pattern to match the pathname
   -repo=             The pattern to match repository names
   -size=             Limit results based on the file size [+-]<d><u>
@@ -115,6 +116,7 @@ type config struct {
 	noPrivate      bool             // Don't include private repositories.
 	noPublic       bool             // Don't include public repositories.
 	noFork         bool             // Don't include fork repositories.
+	noRepoRegexp   *regexp.Regexp   // The pattern to reject repository names.
 }
 
 type finder struct {
@@ -147,10 +149,10 @@ func readConfig() (config, error) {
 	config := config{}
 
 	var (
-		showVersion, showHelp      bool
-		grep, noGrep, repo, fsize  string
-		name, path, noName, noPath stringList
-		err                        error
+		showVersion, showHelp             bool
+		grep, noGrep, repo, noRepo, fsize string
+		name, path, noName, noPath        stringList
+		err                               error
 	)
 	flag.BoolVar(&config.archived, "archived", config.archived, "Include archived repositories")
 	flag.StringVar(&config.branch, "branch", "", "The branch name if different from the default")
@@ -170,6 +172,7 @@ func readConfig() (config, error) {
 	flag.Var(&noPath, "no-path", "The pattern to reject the pathname")
 	flag.BoolVar(&config.noPrivate, "no-private", config.noPrivate, "Don't include private repositories")
 	flag.BoolVar(&config.noPublic, "no-public", config.noPublic, "Don't include public repositories")
+	flag.StringVar(&noRepo, "no-repo", "", "The pattern to reject repository names")
 	flag.Var(&path, "path", "The pattern to match the pathname")
 	flag.StringVar(&repo, "repo", "", "The pattern to match repository names")
 	flag.StringVar(&fsize, "size", "", "Limit results based on the file size [+-]<d><u>")
@@ -238,6 +241,12 @@ func readConfig() (config, error) {
 	if repo != "" {
 		if config.repoRegexp, err = regexp.Compile(repo); err != nil {
 			return config, fmt.Errorf("invalid repo pattern: %s", err)
+		}
+	}
+
+	if noRepo != "" {
+		if config.noRepoRegexp, err = regexp.Compile(noRepo); err != nil {
+			return config, fmt.Errorf("invalid no-repo pattern: %s", err)
 		}
 	}
 
@@ -344,13 +353,14 @@ func run(ctx context.Context) error {
 
 func (f *finder) find(ctx context.Context) error {
 	repos, err := gh.NewRepoFinder(f.gh).Find(ctx, gh.RepoFilter{
-		Owner:      f.config.owner,
-		Repo:       f.config.repo,
-		RepoRegexp: f.config.repoRegexp,
-		Archived:   f.config.archived,
-		NoPrivate:  f.config.noPrivate,
-		NoPublic:   f.config.noPublic,
-		NoFork:     f.config.noFork,
+		Owner:        f.config.owner,
+		Repo:         f.config.repo,
+		RepoRegexp:   f.config.repoRegexp,
+		Archived:     f.config.archived,
+		NoPrivate:    f.config.noPrivate,
+		NoPublic:     f.config.noPublic,
+		NoFork:       f.config.noFork,
+		NoRepoRegexp: f.config.noRepoRegexp,
 	})
 	if err != nil {
 		return err

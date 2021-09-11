@@ -28,6 +28,7 @@ Usage: gh-purge-artifacts [flags] [owner][/repo]
 Flags:
   -help         Print this information and exit
   -dry-run      Dry run
+  -no-repo=     The pattern to reject repository names
   -repo=        The pattern to match repository names
   -token        Prompt for an Access Token
   -version      Print the version and exit
@@ -43,11 +44,12 @@ func main() {
 }
 
 type config struct {
-	owner      string
-	repo       string
-	repoRegexp *regexp.Regexp
-	dryRun     bool
-	token      bool // Propmt for an access token.
+	owner        string
+	repo         string
+	repoRegexp   *regexp.Regexp
+	dryRun       bool
+	token        bool           // Propmt for an access token.
+	noRepoRegexp *regexp.Regexp // The pattern to reject repository names.
 }
 
 type purger struct {
@@ -67,11 +69,12 @@ func readConfig() (config, error) {
 
 	var (
 		showVersion, showHelp bool
-		repo                  string
+		repo, noRepo          string
 		err                   error
 	)
 	flag.BoolVar(&config.dryRun, "dry-run", config.dryRun, "Dry run")
 	flag.BoolVar(&showHelp, "help", showHelp, "Print this information and exit")
+	flag.StringVar(&noRepo, "no-repo", "", "The pattern to reject repository names")
 	flag.StringVar(&repo, "repo", "", "The pattern to match repository names")
 	flag.BoolVar(&config.token, "token", config.token, "Prompt for Access Token")
 	flag.BoolVar(&showVersion, "version", showVersion, "Print version and exit")
@@ -108,6 +111,12 @@ func readConfig() (config, error) {
 		config.repoRegexp, err = regexp.Compile(repo)
 		if err != nil {
 			return config, fmt.Errorf("invalid name pattern: %s: %s", repo, err)
+		}
+	}
+
+	if noRepo != "" {
+		if config.noRepoRegexp, err = regexp.Compile(noRepo); err != nil {
+			return config, fmt.Errorf("invalid no-repo pattern: %s", err)
 		}
 	}
 

@@ -20,13 +20,14 @@ func NewRepoFinder(client *github.Client) *RepoFinder {
 
 // RepoFilter represents criteria used to filter repositories.
 type RepoFilter struct {
-	Owner      string         // The owner name. Can be a user or an organization.
-	Repo       string         // The repository name when in single-repo mode.
-	RepoRegexp *regexp.Regexp // The pattern to match repository names.
-	Archived   bool           // Include archived repositories.
-	NoPrivate  bool           // Don't inlucde private repositories.
-	NoPublic   bool           // Don't include public repositories.
-	NoFork     bool           // Don't include forks.
+	Owner        string         // The owner name. Can be a user or an organization.
+	Repo         string         // The repository name when in single-repo mode.
+	RepoRegexp   *regexp.Regexp // The pattern to match repository names.
+	Archived     bool           // Include archived repositories.
+	NoPrivate    bool           // Don't inlucde private repositories.
+	NoPublic     bool           // Don't include public repositories.
+	NoFork       bool           // Don't include forks.
+	NoRepoRegexp *regexp.Regexp // The pattern to reject repository names.
 }
 
 // Find repositories using a given filter.
@@ -140,6 +141,10 @@ func apply(repos []*github.Repository, filter RepoFilter) []*github.Repository {
 		}
 
 		if filter.RepoRegexp != nil && !filter.RepoRegexp.MatchString(repo.GetName()) {
+			continue
+		}
+
+		if filter.NoRepoRegexp != nil && filter.NoRepoRegexp.MatchString(repo.GetName()) {
 			continue
 		}
 

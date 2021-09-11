@@ -19,6 +19,7 @@ Usage: gh-purge-artifacts [flags] [owner][/repo]
 Flags:
   -help         Print this information and exit
   -dry-run      Dry run
+  -no-repo=     The pattern to reject repository names
   -repo         The pattern to match repository names
   -token        Prompt for an Access Token
   -version      Print the version and exit

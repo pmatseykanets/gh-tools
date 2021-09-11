@@ -18,6 +18,7 @@ Usage: gh-go-rdeps [flags] <owner> <path>
 
 Flags:
   -help         Print this information and exit
+  -no-repo=     The pattern to reject repository names
   -repo         The pattern to match repository names
   -token        Prompt for an Access Token
   -version      Print the version and exit

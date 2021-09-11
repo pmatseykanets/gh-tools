@@ -38,6 +38,7 @@ Flags:
   -no-fork          Don't include fork repositories
   -no-private       Don't include private repositories
   -no-public        Don't include public repositories
+  -no-repo=         The pattern to reject repository names
   -repo=            The pattern to match repository names
   -review=          The GitHub user login to request the PR review from
   -script=          The script to apply changes
@@ -59,20 +60,21 @@ func main() {
 }
 
 type config struct {
-	owner      string
-	repo       string
-	repoRegexp *regexp.Regexp // The pattern to match respository names.
-	branch     string         // The branch name if different from the default.
-	desc       string         // The PR description.
-	reviewers  []string       // The GitHub user login to request the PR review from.
-	assignees  []string       // The GitHub user login to assign the PR to.
-	script     string         // The body of the script.
-	shell      string         // The shell to use to run the script.
-	title      string         // The PR title.
-	token      bool           // Propmt for an access token.
-	noPrivate  bool           // Don't include private repositories.
-	noPublic   bool           // Don't include public repositories.
-	noFork     bool           // Don't include fork repositories.
+	owner        string
+	repo         string
+	repoRegexp   *regexp.Regexp // The pattern to match respository names.
+	branch       string         // The branch name if different from the default.
+	desc         string         // The PR description.
+	reviewers    []string       // The GitHub user login to request the PR review from.
+	assignees    []string       // The GitHub user login to assign the PR to.
+	script       string         // The body of the script.
+	shell        string         // The shell to use to run the script.
+	title        string         // The PR title.
+	token        bool           // Propmt for an access token.
+	noPrivate    bool           // Don't include private repositories.
+	noPublic     bool           // Don't include public repositories.
+	noFork       bool           // Don't include fork repositories.
+	noRepoRegexp *regexp.Regexp // The pattern to reject repository names.
 }
 
 type prmaker struct {
@@ -108,10 +110,10 @@ func readConfig() (config, error) {
 	}
 
 	var (
-		showVersion, showHelp bool
-		repo, scriptFile      string
-		review, assign        stringList
-		err                   error
+		showVersion, showHelp    bool
+		repo, noRepo, scriptFile string
+		review, assign           stringList
+		err                      error
 	)
 	flag.Var(&assign, "assign", "The GitHub user login to assign the PR to")
 	flag.StringVar(&config.branch, "branch", "", "The PR branch name")
@@ -120,6 +122,7 @@ func readConfig() (config, error) {
 	flag.BoolVar(&config.noFork, "no-fork", config.noFork, "Don't include fork repositories")
 	flag.BoolVar(&config.noPrivate, "no-private", config.noPrivate, "Don't include private repositories")
 	flag.BoolVar(&config.noPublic, "no-public", config.noPublic, "Don't include public repositories")
+	flag.StringVar(&noRepo, "no-repo", "", "The pattern to reject repository names")
 	flag.StringVar(&repo, "repo", "", "The pattern to match repository names")
 	flag.Var(&review, "review", "The GitHub user login to request the PR review from")
 	flag.StringVar(&config.script, "script", "", "The script to apply PR changes")
@@ -220,6 +223,12 @@ func readConfig() (config, error) {
 		}
 	}
 
+	if noRepo != "" {
+		if config.noRepoRegexp, err = regexp.Compile(noRepo); err != nil {
+			return config, fmt.Errorf("invalid no-repo pattern: %s", err)
+		}
+	}
+
 	return config, nil
 }
 
@@ -266,13 +275,14 @@ func (p *prmaker) create(ctx context.Context) error {
 	}()
 
 	repos, err := gh.NewRepoFinder(p.gh).Find(ctx, gh.RepoFilter{
-		Owner:      p.config.owner,
-		Repo:       p.config.repo,
-		RepoRegexp: p.config.repoRegexp,
-		Archived:   false,
-		NoPrivate:  p.config.noPrivate,
-		NoPublic:   p.config.noPublic,
-		NoFork:     p.config.noFork,
+		Owner:        p.config.owner,
+		Repo:         p.config.repo,
+		RepoRegexp:   p.config.repoRegexp,
+		Archived:     false,
+		NoPrivate:    p.config.noPrivate,
+		NoPublic:     p.config.noPublic,
+		NoFork:       p.config.noFork,
+		NoRepoRegexp: p.config.noRepoRegexp,
 	})
 	if err != nil {
 		return err
