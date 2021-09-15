@@ -20,11 +20,13 @@ Flags:
   -assign=          The GitHub user login to assign the PR to
   -help, h          Print this information and exit
   -branch=          The branch name if different from the default
+  -commit-message=  The commit message
   -desc=            The PR description
   -no-fork          Don't include fork repositories
   -no-private       Don't include private repositories
   -no-public        Don't include public repositories
   -no-repo=         The pattern to reject repository names
+  -patch            Apply changes to the existing PR
   -repo=            The pattern to match repository names
   -review=          The GitHub user login to request the PR review from
   -script=          The script to apply changes
