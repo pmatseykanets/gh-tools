@@ -8,6 +8,7 @@ GitHub productivity tools
 - [gh-go-rdeps](cmd/gh-go-rdeps) Find reverse Go dependencies across GitHub repositories
 - [gh-find](cmd/gh-find) Walk file hierarchies across GitHub repositories
 - [gh-pr](cmd/gh-pr) Automate PR creation across GitHub repositories
+- [gh-watch](cmd/gh-watch) Manage notification subscriptions across GitHub repositories
 
 ## Authentication
 
