@@ -38,14 +38,14 @@ List the subscription status for all repositories in the GitHub org `foo`:
 gh-watch foo
 ```
 
-Unsubscribe from all repositories in the GitHub org foo:
+Unsubscribe from all repositories in the GitHub org `foo`:
 
 ```sh
 gh-watch -unwatch foo
 ```
 
-Subscribe to notifications for repositories starting with `api-` in the GitHub org foo:
+Subscribe to notifications for repositories starting with `api-` in the GitHub org `foo`:
 
 ```sh
-gh-watch -watch -repo '$api-' foo
+gh-watch -watch -repo '^api-' foo
 ```
