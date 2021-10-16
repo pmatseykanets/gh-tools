@@ -367,6 +367,7 @@ func (p *prmaker) create(ctx context.Context) error {
 			if err == errNoChanges {
 				fmt.Fprint(p.stdout, " no changes")
 				if !p.config.patch {
+					fmt.Fprintln(p.stdout)
 					continue
 				}
 			} else {
