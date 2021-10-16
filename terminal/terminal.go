@@ -14,7 +14,7 @@ import (
 // Source: https://gist.github.com/jlinoff/e8e26b4ffa38d379c7f1891fd174a6d0
 func PasswordPrompt(prompt ...string) (string, error) {
 	// Get the initial state of the terminal.
-	state, err := terminal.GetState(syscall.Stdin)
+	state, err := terminal.GetState(int(syscall.Stdin))
 	if err != nil {
 		return "", err
 	}
@@ -27,7 +27,7 @@ func PasswordPrompt(prompt ...string) (string, error) {
 	go func() {
 		select {
 		case <-sig:
-			_ = terminal.Restore(syscall.Stdin, state)
+			_ = terminal.Restore(int(syscall.Stdin), state)
 			fmt.Println()
 			os.Exit(1)
 		case <-quit:
@@ -41,7 +41,7 @@ func PasswordPrompt(prompt ...string) (string, error) {
 	}
 	fmt.Print(text)
 
-	password, err := terminal.ReadPassword(syscall.Stdin)
+	password, err := terminal.ReadPassword(int(syscall.Stdin))
 	fmt.Println()
 	if err != nil {
 		return "", err
