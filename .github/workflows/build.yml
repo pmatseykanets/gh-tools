@@ -11,7 +11,7 @@ jobs:
     name: "Build ${{ matrix.go }}"
     strategy:
       matrix:
-        go: ["1.16", "1.17"]
+        go: ["1.17"]
     runs-on: ubuntu-latest
     env:
       GO111MODULE: on
