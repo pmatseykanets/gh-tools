@@ -53,3 +53,5 @@ jobs:
       uses: goreleaser/goreleaser-action@v2
       with:
         args: release --rm-dist ${{ fromJSON('["", "--snapshot"]')[github.ref == 'refs/heads/master'] }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
