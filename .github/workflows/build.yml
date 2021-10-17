@@ -52,4 +52,4 @@ jobs:
       if: matrix.go == '1.17' && (startsWith(github.ref, 'refs/tags/v') ||  github.ref == 'refs/heads/master')
       uses: goreleaser/goreleaser-action@v2
       with:
-        args: release --rm-dist ${{ fromJSON('["-snapshot", ""]')[github.ref == 'refs/heads/master'] }}
+        args: release --rm-dist ${{ fromJSON('["", "--snapshot"]')[github.ref == 'refs/heads/master'] }}
