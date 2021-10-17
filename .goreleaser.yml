@@ -1,0 +1,47 @@
+project_name: gh-tools
+release:
+  prerelease: auto
+before:
+  hooks:
+    - go mod tidy
+builds:
+  - <<: &build_defaults
+      main: ./cmd/gh-find
+      id: gh-find
+      binary: gh-find
+      flags:
+        - -trimpath
+      ldflags:
+        - -s -w -X github.com/pmatseykanets/gh-tools/version.Version={{.Version}}
+      env:
+        - CGO_ENABLED=0
+      goos: [darwin, linux, windows]
+      goarch: [amd64, arm64, 386]
+      ignore:
+        - goos: windows
+          goarch: arm64
+  - <<: *build_defaults
+    main: ./cmd/gh-pr
+    id: gh-pr
+    binary: gh-pr
+  - <<: *build_defaults
+    main: ./cmd/gh-watch
+    id: gh-watch
+    binary: gh-watch
+  - <<: *build_defaults
+    main: ./cmd/gh-go-rdeps
+    id: gh-go-rdeps
+    binary: gh-go-rdeps
+  - <<: *build_defaults
+    main: ./cmd/gh-purge-artifacts
+    id: gh-purge-artifacts
+    binary: gh-purge-artifacts
+archives:
+  - builds: [gh-find, gh-pr, gh-watch, gh-go-rdeps, gh-purge-artifacts]
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - none*
+checksum:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'

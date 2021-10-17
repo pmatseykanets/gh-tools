@@ -1,7 +1,13 @@
 .env
 .envrc
 /gh-purge-artifacts
+/gh-purge-artifacts.exe
 /gh-go-rdeps
+/gh-go-rdeps.exe
 /gh-find
+/gh-find.exe
 /gh-pr
+/gh-pr.exe
 /gh-watch
+/gh-watch.exe
+dist/
