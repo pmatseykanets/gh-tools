@@ -11,46 +11,37 @@ jobs:
     name: "Build ${{ matrix.go }}"
     strategy:
       matrix:
-        go: ["1.15", "1.16", "1.17"]
+        go: ["1.16", "1.17"]
     runs-on: ubuntu-latest
     env:
       GO111MODULE: on
 
     steps:
     - name: Set up Go
-      uses: actions/setup-go@v1
+      uses: actions/setup-go@v2
       with:
         go-version: ${{ matrix.go }}
-
     - name: Go version
       run: go version
-
     - name: Install staticcheck
       run: go get honnef.co/go/tools/cmd/staticcheck
-
     - name: Checkout
-      uses: actions/checkout@v1
-      with:
-        fetch-depth: 1
-
+      uses: actions/checkout@v2
     - name: Vet
       run: go vet ./...
-
-    - name: Test
-      run: go test -vet=off -race -coverprofile=coverage.txt -covermode=atomic ./...
-
-    - name: Upload code coverage
-      if: matrix.go == '1.16'
-      timeout-minutes: 1
-      continue-on-error: true
-      run: bash <(curl -s https://codecov.io/bash)
-
     - name: Run staticcheck
       run: $(go env GOPATH)/bin/staticcheck ./...
-
+    - name: Test
+      run: go test -vet=off -race -coverprofile=coverage.txt -covermode=atomic ./...
+    - name: Upload code coverage
+      if: matrix.go == '1.17'
+      timeout-minutes: 1
+      continue-on-error: true
+      uses: codecov/codecov-action@v2
     - name: Build binaries
       run: |
         go build ./cmd/gh-find
-        go build ./cmd/gh-go-rdeps
         go build ./cmd/gh-pr
+        go build ./cmd/gh-watch
         go build ./cmd/gh-purge-artifacts
+        go build ./cmd/gh-go-rdeps
