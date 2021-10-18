@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	gitConfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	gitHTTP "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/google/go-github/v32/github"
 	"github.com/pmatseykanets/gh-tools/auth"
@@ -363,17 +365,20 @@ func (p *prmaker) create(ctx context.Context) error {
 		}
 
 		err = p.apply(ctx, repo, scriptFile.Name())
-		if err != nil {
-			if err == errNoChanges {
-				fmt.Fprint(p.stdout, " no changes")
-				if !p.config.patch {
-					fmt.Fprintln(p.stdout)
-					continue
-				}
-			} else {
+		switch {
+		case err == nil:
+		case errors.Is(err, errNoChanges):
+			fmt.Fprint(p.stdout, " no changes")
+			if !p.config.patch {
 				fmt.Fprintln(p.stdout)
-				return err
+				continue
 			}
+		case errors.Is(err, transport.ErrEmptyRemoteRepository):
+			fmt.Fprintln(p.stdout, " empty repository")
+			continue
+		default:
+			fmt.Fprintln(p.stdout)
+			return err
 		}
 
 		if !p.config.patch {
@@ -547,12 +552,12 @@ func (p *prmaker) apply(ctx context.Context, repo *github.Repository, scriptPath
 	}
 	gitRepo, err := git.PlainCloneContext(ctx, dir, false, cloneOptions)
 	if err != nil {
-		return fmt.Errorf("%s: git clone error: %s", repo.GetFullName(), err)
+		return fmt.Errorf("%s: git clone error: %w", repo.GetFullName(), err)
 	}
 
 	wrkTree, err := gitRepo.Worktree()
 	if err != nil {
-		return fmt.Errorf("%s: git worktree error: %s", repo.GetFullName(), err)
+		return fmt.Errorf("%s: git worktree error: %w", repo.GetFullName(), err)
 	}
 
 	// git checkout [-b] branch.
@@ -562,7 +567,7 @@ func (p *prmaker) apply(ctx context.Context, repo *github.Repository, scriptPath
 	if !p.config.patch {
 		headRef, err := gitRepo.Head()
 		if err != nil {
-			return fmt.Errorf("%s: git show-ref error: %s", repo.GetFullName(), err)
+			return fmt.Errorf("%s: git show-ref error: %w", repo.GetFullName(), err)
 		}
 		checkoutOptions.Hash = headRef.Hash()
 		checkoutOptions.Create = true
@@ -572,14 +577,14 @@ func (p *prmaker) apply(ctx context.Context, repo *github.Repository, scriptPath
 			Auth:     auth,
 		})
 		if err != nil {
-			return fmt.Errorf("%s: git fetch error: %s", repo.GetFullName(), err)
+			return fmt.Errorf("%s: git fetch error: %w", repo.GetFullName(), err)
 		}
 		checkoutOptions.Force = true
 	}
 
 	err = wrkTree.Checkout(checkoutOptions)
 	if err != nil {
-		return fmt.Errorf("%s: git checkout error: %s", repo.GetFullName(), err)
+		return fmt.Errorf("%s: git checkout error: %w", repo.GetFullName(), err)
 	}
 
 	// Run the script with the choosen shell.
@@ -591,19 +596,19 @@ func (p *prmaker) apply(ctx context.Context, repo *github.Repository, scriptPath
 		if eerr, ok := err.(*exec.ExitError); ok {
 			p.stderr.Write(eerr.Stderr)
 		}
-		return fmt.Errorf("%s: failed to apply changes: %s", repo.GetFullName(), err)
+		return fmt.Errorf("%s: failed to apply changes: %w", repo.GetFullName(), err)
 	}
 
 	// git add .
 	_, err = wrkTree.Add(".")
 	if err != nil {
-		return fmt.Errorf("%s: git add error: %s", repo.GetFullName(), err)
+		return fmt.Errorf("%s: git add error: %w", repo.GetFullName(), err)
 	}
 
 	// Make sure we have changes to commit.
 	gitStatus, err := wrkTree.Status()
 	if err != nil {
-		return fmt.Errorf("%s: git status error: %s", repo.GetFullName(), err)
+		return fmt.Errorf("%s: git status error: %w", repo.GetFullName(), err)
 	}
 	if gitStatus.IsClean() {
 		return errNoChanges
@@ -619,7 +624,7 @@ func (p *prmaker) apply(ctx context.Context, repo *github.Repository, scriptPath
 	}
 	_, err = wrkTree.Commit(commitMessage, &git.CommitOptions{})
 	if err != nil {
-		return fmt.Errorf("%s: git commit error: %s", repo.GetFullName(), err)
+		return fmt.Errorf("%s: git commit error: %w", repo.GetFullName(), err)
 	}
 
 	// git push.
@@ -628,7 +633,7 @@ func (p *prmaker) apply(ctx context.Context, repo *github.Repository, scriptPath
 		Auth:       auth,
 	})
 	if err != nil {
-		return fmt.Errorf("%s: git push error: %s", repo.GetFullName(), err)
+		return fmt.Errorf("%s: git push error: %w", repo.GetFullName(), err)
 	}
 
 	return nil
