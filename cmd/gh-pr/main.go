@@ -39,6 +39,7 @@ Flags:
   -branch=          The branch name if different from the default
   -commit-message=  The commit message
   -desc=            The PR description
+  -list             List PR associated with the branch
   -no-fork          Don't include fork repositories
   -no-private       Don't include private repositories
   -no-public        Don't include public repositories
@@ -82,6 +83,7 @@ type config struct {
 	noRepoRegexp  *regexp.Regexp // The pattern to reject repository names.
 	patch         bool           // Apply changes to the existing PR
 	commitMessage string         // The commit message
+	list          bool           // List PR associated with the branch
 }
 
 type prmaker struct {
@@ -122,16 +124,17 @@ func readConfig() (config, error) {
 		review, assign           stringList
 		err                      error
 	)
-	flag.BoolVar(&config.patch, "patch", config.patch, "Apply changes to the existing PR")
 	flag.Var(&assign, "assign", "The GitHub user login to assign the PR to")
 	flag.StringVar(&config.commitMessage, "commit-message", "", "The commit message")
 	flag.StringVar(&config.branch, "branch", "", "The PR branch name")
 	flag.StringVar(&config.desc, "desc", "", "The PR description")
 	flag.BoolVar(&showHelp, "help", showHelp, "Print this information and exit")
+	flag.BoolVar(&config.list, "list", config.list, "List PR associated with the branch")
 	flag.BoolVar(&config.noFork, "no-fork", config.noFork, "Don't include fork repositories")
 	flag.BoolVar(&config.noPrivate, "no-private", config.noPrivate, "Don't include private repositories")
 	flag.BoolVar(&config.noPublic, "no-public", config.noPublic, "Don't include public repositories")
 	flag.StringVar(&noRepo, "no-repo", "", "The pattern to reject repository names")
+	flag.BoolVar(&config.patch, "patch", config.patch, "Apply changes to the existing PR")
 	flag.StringVar(&repo, "repo", "", "The pattern to match repository names")
 	flag.Var(&review, "review", "The GitHub user login to request the PR review from")
 	flag.StringVar(&config.script, "script", "", "The script to apply PR changes")
@@ -169,16 +172,16 @@ func readConfig() (config, error) {
 		return config, fmt.Errorf("owner is required")
 	}
 
+	if config.list && config.patch {
+		return config, fmt.Errorf("list and patch are mutually exclusive")
+	}
+
 	if config.noPrivate && config.noPublic {
 		return config, fmt.Errorf("no-private and no-public are mutually exclusive")
 	}
 
 	if config.branch == "" {
 		return config, fmt.Errorf("branch is required")
-	}
-
-	if config.shell == "" {
-		return config, fmt.Errorf("shell is required")
 	}
 
 	if config.script == "" && scriptFile != "" {
@@ -188,11 +191,15 @@ func readConfig() (config, error) {
 		}
 		config.script = string(contents)
 	}
-	if config.script == "" {
+	if !config.list && config.script == "" {
 		return config, fmt.Errorf("script is required")
 	}
 
-	if config.title == "" && config.commitMessage == "" {
+	if !config.list && config.shell == "" {
+		return config, fmt.Errorf("shell is required")
+	}
+
+	if !config.list && config.title == "" && config.commitMessage == "" {
 		return config, fmt.Errorf("either title or commit-message must be provided")
 	}
 
@@ -273,16 +280,6 @@ func run(ctx context.Context) error {
 }
 
 func (p *prmaker) create(ctx context.Context) error {
-	scriptFile, err := ioutil.TempFile("", "gh-pr-script")
-	if err != nil {
-		return fmt.Errorf("can't create temp file: %s", err)
-	}
-	scriptFile.WriteString(p.config.script)
-	defer func() {
-		scriptFile.Close()
-		os.Remove(scriptFile.Name()) // Clean up.
-	}()
-
 	repos, err := gh.NewRepoFinder(p.gh).Find(ctx, gh.RepoFilter{
 		Owner:        p.config.owner,
 		Repo:         p.config.repo,
@@ -341,19 +338,24 @@ func (p *prmaker) create(ctx context.Context) error {
 			if err == nil {
 				prURL = pr.GetHTMLURL()
 			}
-			if p.config.patch { // Adding to the exisitng PR.
+
+			if p.config.patch || p.config.list { // Listing or patching the exisitng PR.
 				if pr != nil {
 					fmt.Fprint(p.stdout, " ", prURL)
+					if p.config.list {
+						fmt.Fprintln(p.stdout)
+						continue
+					}
 				} else {
-					fmt.Fprintln(p.stdout, " no PR found")
+					fmt.Fprintln(p.stdout, " PR not found")
 					continue
 				}
-			} else {
+			} else { // Creating a new PR but remote branch already exists.
 				fmt.Fprintln(p.stdout, " the remote branch already exists ", prURL)
 				continue
 			}
 		default:
-			if p.config.patch && resp != nil && resp.StatusCode == http.StatusNotFound {
+			if (p.config.patch || p.config.list) && resp != nil && resp.StatusCode == http.StatusNotFound {
 				fmt.Fprintln(p.stdout, " branch not found")
 				continue
 			}
@@ -363,6 +365,23 @@ func (p *prmaker) create(ctx context.Context) error {
 				return fmt.Errorf("%s: error checking branch: %s", repo.GetFullName(), err)
 			}
 		}
+
+		// Sanity check assertion. This should never happen.
+		if p.config.list {
+			fmt.Fprintln(p.stdout)
+			return fmt.Errorf("unexpected condition for list flag")
+		}
+
+		scriptFile, err := ioutil.TempFile("", "gh-pr-script")
+		if err != nil {
+			fmt.Fprintln(p.stdout)
+			return fmt.Errorf("can't create temp file: %s", err)
+		}
+		scriptFile.WriteString(p.config.script)
+		defer func() {
+			scriptFile.Close()
+			os.Remove(scriptFile.Name()) // Clean up.
+		}()
 
 		err = p.apply(ctx, repo, scriptFile.Name())
 		switch {
